@@ -92,6 +92,31 @@ def _check_bin(binary: str, engine: str) -> None:
         )
 
 
+def claude_token_seconds_left() -> float | None:
+    """claude 订阅 OAuth token 还有多少秒过期。读不到返回 None。
+
+    用途:token 快过期时 bot 主动避让整轮,别在刷新窗口跟同机的其他 claude
+    进程(比如别的常驻服务)抢着刷新 —— 抢输的那个可能把空结果写回凭据文件,
+    把 accessToken/refreshToken 冲成空字符串,一次把两边都搞哑。这是踩过的坑,
+    2026-07-17 亲手造成过一次(并发跑多个 claude 时)。
+
+    读不到文件/字段(比如换台机器、还没登录)就返回 None,调用方照常跑 ——
+    这个保护是锦上添花,绝不能因为它本身让 bot 瘫痪。
+    """
+    import time
+
+    p = os.path.expanduser("~/.claude/.credentials.json")
+    try:
+        d = json.loads(Path(p).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    exp = (d.get("claudeAiOauth") or {}).get("expiresAt") or 0
+    if not exp:
+        return None
+    exp_s = exp / 1000 if exp > 1e11 else exp
+    return exp_s - time.time()
+
+
 def _spawn_env() -> dict[str, str]:
     """给子进程的环境。
 

@@ -15,7 +15,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from polyvote import brain, execute, market as mkt, risk, settle
+from polyvote import brain, execute, llm, market as mkt, risk, settle
 from polyvote.config import ConfigError, load
 from polyvote.store import Store
 
@@ -80,6 +80,16 @@ def run_round(cfg, store: Store) -> None:
         datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
         "DRY-RUN (不下单)" if dry else "!!! 实盘 !!!",
     )
+
+    # token 快过期时避让整轮 —— 别在刷新窗口跟同机的其他 claude 进程抢刷新,
+    # 抢输的一方可能把 token 写空,一次搞哑两边。等下一轮,那时 token 已被
+    # 别的调用续期。读不到凭据(比如别的机器)返回 None,照常跑。
+    left = llm.claude_token_seconds_left()
+    if left is not None and 0 < left < 900:
+        log.warning(
+            "claude token %.0f 秒后过期,跳过本轮避免刷新竞争,等下一轮", left
+        )
+        return
 
     # 先结算已解决的持仓 —— 这是唯一能证明这套投票行不行的数据
     try:
