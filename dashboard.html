@@ -218,6 +218,37 @@
   .crow .gap.proof { color: var(--good); font-weight: 700; }
   .chead { color: var(--muted); font-size: 9.5px; letter-spacing: .06em; }
 
+  /* ── 模型设置 ── */
+  .mrow {
+    display: grid; grid-template-columns: 90px 1fr 110px 60px;
+    gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--grid);
+  }
+  .mrow:last-child { border-bottom: 0; }
+  .mrole { font-family: var(--mono); font-size: 12px; color: var(--ink); }
+  .mrole .eng { color: var(--muted); font-size: 10px; }
+  .msel, .mesel {
+    background: var(--surface-2); color: var(--ink); border: 1px solid var(--ring);
+    border-radius: 5px; padding: 5px 8px; font-family: var(--mono); font-size: 12px;
+    width: 100%; cursor: pointer;
+  }
+  .msel:focus, .mesel:focus { outline: 1px solid var(--s1); }
+  .mnote { font-size: 10.5px; color: var(--muted); margin-top: 2px; font-family: var(--mono); }
+  .mrow.changed .mrole::after { content: " ●"; color: var(--warning); }
+  .mreset {
+    background: none; border: 1px solid var(--ring); color: var(--muted);
+    border-radius: 5px; padding: 4px 8px; font-size: 11px; cursor: pointer; font-family: var(--mono);
+  }
+  .mreset:hover { border-color: var(--critical); color: var(--critical); }
+  .mreset:disabled { opacity: .3; cursor: default; }
+  .mbar { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+  .mflag { font-family: var(--mono); font-size: 11px; color: var(--warning); }
+  .msaved { font-family: var(--mono); font-size: 11px; color: var(--good); }
+  .ghost-btn {
+    background: none; border: 1px solid var(--ring); color: var(--ink-2);
+    border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; font-family: var(--mono);
+  }
+  .ghost-btn:hover { border-color: var(--critical); color: var(--critical); }
+
   .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 9px; }
   .legend span { font-size: 11px; color: var(--ink-2); display: flex; align-items: center; gap: 5px; font-family: var(--mono); }
   .swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
@@ -234,6 +265,11 @@
   </div>
 
   <div class="tiles" id="tiles"></div>
+
+  <div class="panel">
+    <h2>模型设置 · 改完下一轮生效 <span id="ov-flag"></span></h2>
+    <div class="panel-body" id="models"></div>
+  </div>
 
   <div class="cols">
     <div class="panel">
@@ -267,6 +303,79 @@ const hhmm = ts => (ts || "").slice(5, 16).replace("T", " ");
 // 不该还要先点一下。用户手动折叠后 seeded 保持 true,不会被下次轮询强行掰开。
 let openRounds = new Set();
 let seeded = false;
+
+// 模型设置面板 —— 观测台唯一会写东西的地方。
+// 改的是 overrides.json,config.yaml 一个字不动;bot 下一轮 load 时叠加生效。
+async function post(url, body) {
+  const r = await fetch(url, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+
+function models(m) {
+  const el = $("#models");
+  if (!m || m.error) {
+    el.innerHTML = `<div class="empty">读配置失败: ${esc(m?.error || "?")}</div>`;
+    return;
+  }
+  // 别在你正操作下拉时重建面板 —— 5 秒一次的轮询会把你选一半的框刷掉。
+  // 焦点在这个面板里就跳过这次重绘。
+  if (el.contains(document.activeElement) &&
+      document.activeElement.tagName === "SELECT") return;
+  $("#ov-flag").innerHTML = m.has_overrides
+    ? `<span class="mflag">· 有覆盖(config.yaml 未改)</span>` : "";
+
+  const rows = m.roles.map(r => {
+    const opts = (m.options[r.engine] || []);
+    const cur = opts.find(o => o.model === r.model);
+    // codex 不支持在这里改 effort 语义,claude 才给 effort 下拉
+    const effOpts = ["(默认)", ...m.efforts];
+    return `<div class="mrow" data-role="${esc(r.key)}">
+      <div class="mrole">${esc(r.label)}<br><span class="eng">${esc(r.engine)}</span></div>
+      <div>
+        <select class="msel" data-role="${esc(r.key)}" data-eng="${esc(r.engine)}">
+          ${opts.map(o => `<option value="${esc(o.model)}" ${o.model === r.model ? "selected" : ""}>${
+            esc(o.model)}${o.note ? " — " + esc(o.note) : ""}</option>`).join("")}
+        </select>
+        ${cur?.note ? `<div class="mnote">${esc(cur.note)}</div>` : ""}
+      </div>
+      <select class="mesel" data-role="${esc(r.key)}">
+        ${effOpts.map(e => {
+          const val = e === "(默认)" ? "" : e;
+          return `<option value="${val}" ${val === (r.effort || "") ? "selected" : ""}>${esc(e)}</option>`;
+        }).join("")}
+      </select>
+      <button class="mreset" data-role="${esc(r.key)}">复原</button>
+    </div>`;
+  }).join("");
+
+  el.innerHTML = rows + `
+    <div class="mbar">
+      <button class="ghost-btn" id="reset-all">全部复原到 config.yaml</button>
+      <span id="msg"></span>
+    </div>`;
+
+  // 改 model 或 effort 都即时保存 —— 没有"保存"按钮,改完就写
+  const save = async (role) => {
+    const model = el.querySelector(`.msel[data-role="${CSS.escape(role)}"]`).value;
+    const effort = el.querySelector(`.mesel[data-role="${CSS.escape(role)}"]`).value || null;
+    const res = await post("/api/model", { role, model, effort });
+    const msg = $("#msg");
+    if (res.ok) {
+      msg.className = "msaved"; msg.textContent = "✓ 已保存 · 下一轮生效";
+      setTimeout(() => tick(), 400);
+    } else {
+      msg.className = "mflag"; msg.textContent = "✗ " + (res.reason || "保存失败");
+    }
+  };
+  el.querySelectorAll(".msel, .mesel").forEach(s =>
+    s.onchange = () => save(s.dataset.role));
+  el.querySelectorAll(".mreset").forEach(b =>
+    b.onclick = async () => { await post("/api/model/reset", { role: b.dataset.role }); tick(); });
+  $("#reset-all").onclick = async () => { await post("/api/model/reset", {}); tick(); };
+}
 
 function tiles(s) {
   const wr = s.win_rate == null ? null : (s.win_rate * 100).toFixed(0) + "%";
@@ -519,19 +628,27 @@ function render(s) {
   }
   $("#mode").textContent = s.dry_run ? "DRY-RUN · 不下真单" : "实盘 · 真钱";
   $("#mode").className = "pill " + (s.dry_run ? "dry" : "live");
-  const models = new Set();
-  s.rounds.forEach(r => (r.votes || []).forEach(v => models.add(v.voter_id)));
-  $("#agents").textContent = [...models].join(" · ") || "—";
+  // 注意别叫 models —— 那是面板函数名,同名局部会遮蔽它,
+  // 之前 models(s.models) 就因此把一个 Set 当函数调,TypeError 拖垮整个 render。
+  const agentIds = new Set();
+  s.rounds.forEach(r => (r.votes || []).forEach(v => agentIds.add(v.voter_id)));
+  $("#agents").textContent = [...agentIds].join(" · ") || "—";
 
   if (!seeded && s.rounds.length) { openRounds.add(s.rounds[0].id); seeded = true; }
 
-  tiles(s.summary);
-  curve(s.curve);
-  settlements(s.settlements);
-  cachePanel(s.cache);
-  $("#rounds").innerHTML = s.rounds.length
-    ? s.rounds.map(roundBlock).join("")
-    : `<div class="empty">还没有轮次</div>`;
+  // 每个面板独立容错 —— 一个挂了不该让整页空白(这次就是这么栽的)。
+  const panel = (name, fn) => { try { fn(); } catch (e) {
+    console.error("[panel " + name + "]", e); } };
+  panel("models", () => models(s.models));
+  panel("tiles", () => tiles(s.summary));
+  panel("curve", () => curve(s.curve));
+  panel("settlements", () => settlements(s.settlements));
+  panel("cache", () => cachePanel(s.cache));
+  panel("rounds", () => {
+    $("#rounds").innerHTML = s.rounds.length
+      ? s.rounds.map(roundBlock).join("")
+      : `<div class="empty">还没有轮次</div>`;
+  });
 
   document.querySelectorAll(".rhead").forEach(h => h.onclick = () => {
     const el = h.parentElement, id = +el.dataset.id;

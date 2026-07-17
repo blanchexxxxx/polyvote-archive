@@ -15,13 +15,20 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
+
+# 能 import polyvote.config —— 观测台现在要 load 配置拿当前模型
+sys.path.insert(0, str(Path(__file__).parent))
 
 DB_PATH = "polyvote.db"
 HTML_PATH = Path(__file__).parent / "dashboard.html"
+CONFIG_PATH = Path(__file__).parent / "config.yaml"
+OVERRIDES_PATH = Path(__file__).parent / "overrides.json"
 
 
 def _conn() -> sqlite3.Connection:
@@ -99,6 +106,89 @@ def _gap_seconds(older_ts: str, newer_ts: str) -> float | None:
         return (b - a).total_seconds()
     except (ValueError, TypeError):
         return None
+
+
+def model_config() -> dict:
+    """当前生效的模型配置 + 可选项,喂前端的模型设置面板。
+
+    "当前生效"= config.yaml 叠加 overrides.json 之后。所以前端显示的永远是
+    bot 下一轮真会用的模型,不是 yaml 里的原始值。
+    """
+    try:
+        from polyvote.config import load
+
+        cfg = load(CONFIG_PATH)
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"{type(e).__name__}: {e}"}
+
+    roles = [
+        {"key": "researcher", "label": "研究员", "engine": cfg.researcher.engine,
+         "model": cfg.researcher.model, "effort": cfg.researcher.effort},
+        *[
+            {"key": f"vote:{v.id}", "label": f"投票·{v.id}", "engine": v.engine,
+             "model": v.model, "effort": v.effort}
+            for v in cfg.voters
+        ],
+        {"key": "decider", "label": "决策者", "engine": cfg.decider.engine,
+         "model": cfg.decider.model, "effort": cfg.decider.effort},
+    ]
+    return {
+        "roles": roles,
+        # 每个 engine 能选的模型(带 note),前端下拉用
+        "options": cfg.known_models,
+        "efforts": ["low", "medium", "high", "xhigh", "max"],
+        # 有没有活跃的覆盖,前端标个"已改"
+        "has_overrides": OVERRIDES_PATH.exists(),
+    }
+
+
+def save_override(role_key: str, model: str, effort) -> dict:
+    """把一条模型覆盖写进 overrides.json。bot 下一轮 load 时生效。
+
+    engine 不让改 —— 换 engine 会连带改 effort 语义和工具能力(codex 没有
+    WebSearch),不是一个下拉能安全表达的。只让换同 engine 下的 model。
+    """
+    # 校验:model 必须在这个 role 当前 engine 的 known 列表里
+    cfg_info = model_config()
+    if "error" in cfg_info:
+        return {"ok": False, "reason": cfg_info["error"]}
+    role = next((r for r in cfg_info["roles"] if r["key"] == role_key), None)
+    if role is None:
+        return {"ok": False, "reason": f"未知角色 {role_key}"}
+    allowed = {m["model"] for m in cfg_info["options"].get(role["engine"], [])}
+    if allowed and model not in allowed:
+        return {"ok": False, "reason": f"{model} 不在 {role['engine']} 的可选列表里"}
+    if effort not in (None, "low", "medium", "high", "xhigh", "max"):
+        return {"ok": False, "reason": f"effort {effort!r} 非法"}
+
+    ov = {}
+    if OVERRIDES_PATH.exists():
+        try:
+            ov = json.loads(OVERRIDES_PATH.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            ov = {}
+    ov[role_key] = {"model": model, "effort": effort}
+    OVERRIDES_PATH.write_text(json.dumps(ov, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True}
+
+
+def reset_override(role_key: str | None) -> dict:
+    """清覆盖。role_key=None 清全部,回到 config.yaml 的原始值。"""
+    if not OVERRIDES_PATH.exists():
+        return {"ok": True}
+    if role_key is None:
+        OVERRIDES_PATH.unlink()
+        return {"ok": True}
+    try:
+        ov = json.loads(OVERRIDES_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {"ok": True}
+    ov.pop(role_key, None)
+    if ov:
+        OVERRIDES_PATH.write_text(json.dumps(ov, ensure_ascii=False, indent=2), encoding="utf-8")
+    else:
+        OVERRIDES_PATH.unlink()
+    return {"ok": True}
 
 
 def api_state() -> dict:
@@ -207,6 +297,7 @@ def api_state() -> dict:
             "fills": fills,
             "settlements": settlements,
             "curve": curve,
+            "models": model_config(),
         }
     finally:
         c.close()
@@ -224,14 +315,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _json(self, code: int, obj: Any) -> None:
+        self._send(code, json.dumps(obj, ensure_ascii=False, default=str).encode("utf-8"),
+                   "application/json; charset=utf-8")
+
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/api/state":
             try:
-                body = json.dumps(api_state(), ensure_ascii=False, default=str)
+                self._json(200, api_state())
             except Exception as e:  # noqa: BLE001
-                body = json.dumps({"ready": False, "reason": f"{type(e).__name__}: {e}"})
-            self._send(200, body.encode("utf-8"), "application/json; charset=utf-8")
+                self._json(200, {"ready": False, "reason": f"{type(e).__name__}: {e}"})
         elif path in ("/", "/index.html"):
             try:
                 self._send(200, HTML_PATH.read_bytes(), "text/html; charset=utf-8")
@@ -239,6 +333,25 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, b"dashboard.html not found", "text/plain")
         else:
             self._send(404, b"404", "text/plain")
+
+    def do_POST(self) -> None:
+        path = urlparse(self.path).path
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(n) or b"{}")
+        except (ValueError, json.JSONDecodeError):
+            self._json(400, {"ok": False, "reason": "body 不是合法 JSON"})
+            return
+
+        # 设置模型:观测台从只读变成能写 overrides.json。
+        # 只改模型/effort,engine 不让动(见 save_override 里的说明)。
+        if path == "/api/model":
+            r = save_override(body.get("role"), body.get("model"), body.get("effort"))
+            self._json(200 if r["ok"] else 400, r)
+        elif path == "/api/model/reset":
+            self._json(200, reset_override(body.get("role")))
+        else:
+            self._json(404, {"ok": False, "reason": "no such endpoint"})
 
 
 def main() -> None:

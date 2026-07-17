@@ -46,22 +46,36 @@ decider:
   model: claude-fable-5
   effort: high
 
-# ── 已知可用模型 (仅供参考 + 软校验) ──────────────────────
-# 填了不在这里的模型只会打 WARNING,不会拒绝执行。
-# 这是刻意的:硬 allowlist 正是 mory 那个 400 bug 的成因。
-# 模型升级时直接改上面的 voters/decider 即可,这张表更不更新都不影响运行。
+# ── 已知可用模型 ──────────────────────────────────────────
+# 两个作用:
+#   1. 软校验 —— 填了不在这里的模型只打 WARNING 不拒绝(硬 allowlist 正是
+#      mory 那个 400 bug 的成因)。模型升级时这张表更不更新都不影响运行。
+#   2. 喂观测台的模型选择下拉 —— 你在前端能点的就是这些。
+#
+# note 里标了实测的成本档位,选的时候有个参考(2026-07-18 实测:同样负载下
+# fable-5 比 opus-4-8 贵约一倍,主要贵在 output 计价)。想加新模型,往对应
+# engine 下面加一行即可,前端下拉自动出现。
 known_models:
   claude:
-    - claude-haiku-4-5      # 研究员。实测 $0.126/次 vs sonnet-5 $0.725,产出没差
-    - claude-fable-5
-    - claude-sonnet-5
-    - claude-opus-4-8
-    - claude-opus-4-7
-    - claude-sonnet-4-6
+    - model: claude-haiku-4-5
+      note: 最便宜 · 适合研究员
+    - model: claude-fable-5
+      note: 快 · output 计价偏高
+    - model: claude-sonnet-5
+      note: 中档
+    - model: claude-opus-4-8
+      note: 强 · 实测反而比 fable 便宜
+    - model: claude-opus-4-7
+      note: 上一代 opus
+    - model: claude-sonnet-4-6
+      note: 上一代 sonnet
   codex:
-    - gpt-5.6-sol
-    - gpt-5.6-terra
-    - gpt-5.6-luna
+    - model: gpt-5.6-sol
+      note: 默认 · 无缓存分项
+    - model: gpt-5.6-terra
+      note: ""
+    - model: gpt-5.6-luna
+      note: ""
 
 # ── 引擎调用参数 ──────────────────────────────────────────
 engines:

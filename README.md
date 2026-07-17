@@ -57,7 +57,12 @@ chip 里同时印着文字。
 
 ## 换模型
 
-**只改 `config.yaml`**，别处没有第二份模型清单。
+两种方式，模型**不写死**：
+
+**1. 观测台前端**（运行时，不用重启）—— 「模型设置」面板里每个角色一个下拉，
+改完写进 `overrides.json`，bot 下一轮 load 时生效。`config.yaml` 不动。
+
+**2. `config.yaml`**（永久基线）：
 
 ```yaml
 voters:
@@ -70,10 +75,15 @@ decider:
   model: claude-fable-5
 ```
 
-`known_models` 那张表只做**软校验**——填了不在表里的模型只会打 WARNING，照常执行。
-这是刻意的：硬 allowlist 会在新模型上线时把合法模型挡在门外。mory 那边
-`backend/api/routers/chat.py:371-373` 记着这个教训——Fable 5 当初前端有按钮、
-后端 allowlist 没加，点了直接 400。这里不重复。
+叠加逻辑：`config.py::_apply_overrides`，run.py 的常驻循环每轮重新 load。
+engine 不让在前端改（换 engine 会改 effort 语义和工具能力，codex 没 WebSearch）。
+
+`known_models` 只做**软校验**——填了不在表里的模型只 WARNING，照常执行。
+硬 allowlist 会在新模型上线时把合法模型挡在门外（某项目 Fable 5 上线时前端有按钮、
+后端 allowlist 没加，点了直接 400）。这张表同时喂前端下拉，note 里标了实测成本档。
+
+**实测成本（2026-07-18，同样负载）：fable-5 比 opus-4-8 贵约一倍**，主要贵在
+output 计价。默认决策者用 fable 是设计意图，但想省钱可在前端换 opus。
 
 ## 为什么不复用 xia-engine 的 :8900 / :8901
 

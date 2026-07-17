@@ -3,6 +3,9 @@
 *.db-journal
 *.db-wal
 
+# 前端写的模型覆盖 —— 运行时状态,不是代码
+overrides.json
+
 # 日志
 *.log
 

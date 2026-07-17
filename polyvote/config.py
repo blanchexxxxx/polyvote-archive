@@ -80,6 +80,26 @@ _VALID_ENGINES = {"claude", "codex"}
 _VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max", None}
 
 
+def _normalize_known(raw: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
+    """把 known_models 归一成 {engine: [{model, note}, ...]}。
+
+    兼容两种写法:
+      老: [claude-fable-5, claude-opus-4-8]          (纯字符串)
+      新: [{model: claude-fable-5, note: 快}, ...]    (带说明)
+    这样观测台下拉能拿到 note,老配置也不会炸。
+    """
+    out: dict[str, list[dict[str, str]]] = {}
+    for engine, items in (raw or {}).items():
+        norm = []
+        for it in items or []:
+            if isinstance(it, str):
+                norm.append({"model": it, "note": ""})
+            elif isinstance(it, dict) and it.get("model"):
+                norm.append({"model": it["model"], "note": str(it.get("note") or "")})
+        out[engine] = norm
+    return out
+
+
 def _mk_voter(raw: dict[str, Any], where: str) -> Voter:
     for key in ("engine", "model"):
         if not raw.get(key):
@@ -100,6 +120,50 @@ def _mk_voter(raw: dict[str, Any], where: str) -> Voter:
         model=raw["model"],
         effort=effort,
     )
+
+
+def _overrides_path(config_path: Path) -> Path:
+    return config_path.parent / "overrides.json"
+
+
+def role_key(who: str) -> str:
+    """override 的 key。researcher / decider / vote:<voter_id>。"""
+    return who
+
+
+def _apply_overrides(cfg: Config, config_path: Path) -> None:
+    """把 overrides.json 里的模型覆盖叠到 cfg 上。
+
+    格式: {"decider": {"model": "claude-opus-4-8", "effort": "high"}, ...}
+    key 用 role_key(): 'researcher' / 'decider' / 'vote:opus'
+    一个坏文件不能让 bot 起不来 —— 读失败就当没有覆盖。
+    """
+    import json
+
+    p = _overrides_path(config_path)
+    if not p.exists():
+        return
+    try:
+        ov = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        log.warning("overrides.json 读不了,忽略: %s", e)
+        return
+
+    def merged(v: Voter, key: str) -> Voter:
+        o = ov.get(key)
+        if not isinstance(o, dict):
+            return v
+        model = o.get("model") or v.model
+        effort = o.get("effort", v.effort)
+        if effort not in _VALID_EFFORTS:
+            effort = v.effort
+        if model != v.model or effort != v.effort:
+            log.info("覆盖 %s: %s → %s (effort=%s)", key, v.model, model, effort)
+        return Voter(id=v.id, engine=v.engine, model=model, effort=effort)
+
+    cfg.researcher = merged(cfg.researcher, "researcher")
+    cfg.decider = merged(cfg.decider, "decider")
+    cfg.voters = [merged(v, f"vote:{v.id}") for v in cfg.voters]
 
 
 def load(path: str | Path = "config.yaml") -> Config:
@@ -130,9 +194,10 @@ def load(path: str | Path = "config.yaml") -> Config:
             "研究员必须能用 WebSearch,而 codex 这边走的是 read-only 沙箱"
         )
 
-    known = raw.get("known_models") or {}
+    # known_models 现在是 {engine: [{model, note}, ...]} —— 兼容老的纯字符串列表。
+    known = _normalize_known(raw.get("known_models") or {})
     for v in [*voters, decider, researcher]:
-        allowed = known.get(v.engine) or []
+        allowed = {m["model"] for m in known.get(v.engine, [])}
         if allowed and v.model not in allowed:
             # 刻意只 WARN。新模型上线时不该被这张表挡住。
             log.warning(
@@ -165,6 +230,10 @@ def load(path: str | Path = "config.yaml") -> Config:
         known_models=known,
         path=path,
     )
+
+    # 叠加前端写的模型覆盖。config.yaml 保持不动(注释、结构都在),
+    # 观测台只写一个薄薄的 overrides.json,bot 每轮开头重新 load 时应用。
+    _apply_overrides(cfg, path)
 
     for v in [*voters, decider, researcher]:
         cfg.engine_cfg(v.engine)  # 提前炸,别等到跑一半

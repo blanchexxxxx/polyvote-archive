@@ -4,6 +4,28 @@
 
 ---
 
+## 模型怎么改（两种方式）
+
+模型**不写死**。两个层次:
+
+1. **config.yaml** —— 基线。`researcher` / `voters` / `decider` 各自的 engine+model+effort。
+   改这个是永久的,进 git。
+2. **观测台的「模型设置」面板** —— 运行时覆盖。在前端点下拉改模型/effort,写进
+   `overrides.json`(gitignore),**bot 下一轮 load 时叠加生效,不用重启**。
+   config.yaml 一个字不动(注释、结构全在)。
+
+叠加逻辑在 `config.py::_apply_overrides`。run.py 的常驻循环**每轮开头重新 load**
+(run.py:271 附近),所以前端改完等下一轮就生效。overrides.json 坏了不会让 bot 崩
+(读失败当没覆盖)。
+
+engine 不让在前端改 —— 换 engine 会连带改 effort 语义和工具能力(codex 没
+WebSearch),不是一个下拉能安全表达的。要换 engine 改 config.yaml。
+
+实测成本档(2026-07-18,同样负载):**fable-5 比 opus-4-8 贵约一倍**,主要贵在
+output 计价。known_models 的 note 里标了,前端下拉能看到。默认把 fable 放在决策者
+是用户的设计意图(可能有质量理由),没动 —— 但知道这个成本差,想省钱可以在前端
+把决策者换 opus。
+
 ## 你需要但 git 里没有的东西
 
 **`deploy/pi.env`** —— 部署坐标（被 .gitignore 挡掉，因为 git 历史永久，这个库

@@ -269,12 +269,22 @@ def main() -> int:
     interval = int(cfg.loop.get("interval_minutes", 45)) * 60
     log.info("常驻模式,每 %d 分钟一轮。Ctrl-C 退出。", interval // 60)
     while not _stop:
+        # 每轮开头重新 load —— 这样观测台改的 overrides.json 下一轮就生效,
+        # 不用重启 bot。这正是"模型别写死、前端给选择权"的落地点。
+        # load 失败(比如 config 被改坏)就沿用上一份,别让 bot 崩。
+        try:
+            cfg = load(args.config)
+            brain.on_call = store.log_call
+        except ConfigError as e:
+            log.warning("重新 load 配置失败,沿用上一份: %s", e)
+
         try:
             run_round(cfg, store)
         except Exception:  # noqa: BLE001 — 单轮出事不能把常驻进程带走
             log.exception("本轮异常,继续下一轮")
         if _stop:
             break
+        interval = int(cfg.loop.get("interval_minutes", 45)) * 60
         log.info("休息 %d 分钟…", interval // 60)
         for _ in range(interval):
             if _stop:
