@@ -39,6 +39,62 @@ def _table_exists(c: sqlite3.Connection, name: str) -> bool:
     )
 
 
+def cache_stats(c: sqlite3.Connection, limit: int = 30) -> dict:
+    """缓存命中率。公式和阈值抄自 mory 的 RailCacheWidget。
+
+      ratio = Σcache_read / Σ(cache_read + cache_write + new)   —— out 不进分母
+      单次:  cache_read==0 → miss;cache_read > cache_write*2 → hit;否则 warm
+
+    四个数原样呈现,不加权。加权算术("实耗")在 mory 里只存在于注释,
+    没有代码验证过 —— 不抄没验证过的东西。
+    """
+    rows = [
+        dict(r)
+        for r in c.execute(
+            """SELECT ts, role, actor, model, new_tokens, cache_read,
+                      cache_write, out_tokens
+               FROM llm_calls ORDER BY id DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    ]
+    agg = c.execute(
+        """SELECT COALESCE(SUM(new_tokens),0) n, COALESCE(SUM(cache_read),0) r,
+                  COALESCE(SUM(cache_write),0) w, COALESCE(SUM(out_tokens),0) o,
+                  COUNT(*) c FROM llm_calls"""
+    ).fetchone()
+
+    # gap 是相对**更旧的那一次**算的 —— 这是 TTL 探针:
+    # gap 很大(比如 +45m)而 cache_read 还很高,就证明 1h TTL 真的在生效。
+    for i, r in enumerate(rows):
+        older = rows[i + 1]["ts"] if i + 1 < len(rows) else None
+        r["gap_s"] = _gap_seconds(older, r["ts"]) if older else None
+        r["cls"] = (
+            "miss"
+            if r["cache_read"] == 0
+            else ("hit" if r["cache_read"] > r["cache_write"] * 2 else "warm")
+        )
+
+    denom = agg["r"] + agg["w"] + agg["n"]
+    return {
+        "calls": agg["c"],
+        "new": agg["n"],
+        "cache_read": agg["r"],
+        "cache_write": agg["w"],
+        "out": agg["o"],
+        "ratio": (agg["r"] / denom) if denom else 0.0,
+        "recent": rows,
+    }
+
+
+def _gap_seconds(older_ts: str, newer_ts: str) -> float | None:
+    try:
+        a = datetime.fromisoformat(older_ts)
+        b = datetime.fromisoformat(newer_ts)
+        return (b - a).total_seconds()
+    except (ValueError, TypeError):
+        return None
+
+
 def api_state() -> dict:
     """观测台的全部数据。一个请求拿完,前端不用编排多个调用。"""
     c = _conn()
@@ -112,8 +168,15 @@ def api_state() -> dict:
                WHERE ts >= datetime('now', '-5 hours')"""
         ).fetchone()["s"]
 
+        cache = (
+            cache_stats(c)
+            if _table_exists(c, "llm_calls")
+            else {"calls": 0, "ratio": 0.0, "recent": []}
+        )
+
         acted = sum(1 for r in rounds if r["allowed"])
         return {
+            "cache": cache,
             "ready": True,
             "now": datetime.now(timezone.utc).isoformat(),
             "dry_run": bool(rounds[0]["dry_run"]) if rounds else True,

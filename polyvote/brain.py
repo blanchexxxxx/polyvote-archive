@@ -26,13 +26,35 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from . import llm
 from .config import Config
 from .market import Market
 
 log = logging.getLogger(__name__)
+
+# 每次 LLM 调用后的回调,run.py 挂上去把 token 记进库。
+# 用回调而不是 import store —— brain 不该知道存储层的存在,
+# 而且这样测试时不用建库。
+on_call: Callable[..., None] | None = None
+
+
+def _record(role: str, actor: str, res: "llm.LLMResult") -> None:
+    if on_call is None:
+        return
+    try:
+        on_call(
+            role=role,
+            actor=actor,
+            engine=res.engine,
+            model=res.model,
+            usage=res.usage,
+            cost_usd=res.cost_usd,
+            duration_ms=res.duration_ms,
+        )
+    except Exception:  # noqa: BLE001 — 记账挂了不能影响交易
+        log.exception("记录 token 失败(不影响本轮)")
 
 
 # 投票人对价格致盲 —— 这是整套机制成立的前提,不是可选优化。
@@ -433,6 +455,7 @@ def research(cfg: Config, market: Market) -> Research:
             tools=tools,
             max_turns=int(cfg.research.get("max_turns", 10)),
         )
+        _record("research", "researcher", res)
         d = res.data
         out = Research(
             summary=str(d["summary"]),
@@ -550,6 +573,7 @@ def collect_votes(cfg: Config, market: Market, research: Research) -> list[Vote]
                 tools=None,
                 max_turns=max_turns,
             )
+            _record("vote", v.id, res)
             d = res.data
             vote = Vote(
                 voter_id=v.id,
@@ -716,6 +740,7 @@ size_usd 按你的信心和 edge 大小定,别默认顶格。"""
             tools=None,
             max_turns=int(cfg.research.get("max_turns", 8)),
         )
+        _record("decide", "decider", res)
         data = res.data
         dec = Decision(
             action=str(data["action"]).upper(),

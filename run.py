@@ -162,6 +162,8 @@ def run_round(cfg, store: Store) -> None:
             risk_notes=verdict.reasons,
             dry_run=dry,
         )
+        # 调用发生在 log_round 之前(那时还没 round id),这里回填
+        store.attach_calls_to_round(rid)
 
         if not verdict:
             log.info("  → 不动作 (%s)", "; ".join(verdict.reasons))
@@ -238,6 +240,8 @@ def main() -> int:
         return 2
 
     store = Store(cfg.data.get("db_path", "./polyvote.db"))
+    # 把每次 LLM 调用的 token 记进库,喂观测台的命中率仪表
+    brain.on_call = store.log_call
 
     if args.status:
         show_status(cfg, store)

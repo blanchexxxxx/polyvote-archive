@@ -91,6 +91,27 @@ CREATE TABLE IF NOT EXISTS settlements (
     pnl_usd       REAL NOT NULL,
     won           INTEGER NOT NULL
 );
+-- 每次 LLM 调用的真实 token。订阅制下 cost_usd 只是折算,规划配额靠这个。
+--
+-- 四个数是原始值,不加权 —— 加权算术在别处只存在于注释里,没人验证过。
+-- 命中率 = Σcache_read / Σ(cache_read + cache_write + new),output 不进分母。
+CREATE TABLE IF NOT EXISTS llm_calls (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    round_id    INTEGER REFERENCES rounds(id),
+    ts          TEXT NOT NULL,
+    role        TEXT NOT NULL,   -- research | vote | decide
+    actor       TEXT NOT NULL,   -- voter_id / 'researcher' / 'decider'
+    engine      TEXT NOT NULL,
+    model       TEXT NOT NULL,
+    new_tokens  INTEGER NOT NULL DEFAULT 0,  -- input_tokens: 没走缓存的增量
+    cache_read  INTEGER NOT NULL DEFAULT 0,  -- 命中旧缓存 · 约 0.1× · 高 = 热
+    cache_write INTEGER NOT NULL DEFAULT 0,  -- 写/重建缓存 · 约 1.25-2× · 高 = 冷启
+    out_tokens  INTEGER NOT NULL DEFAULT 0,
+    cost_usd    REAL,
+    duration_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_calls_ts ON llm_calls(ts);
+CREATE INDEX IF NOT EXISTS idx_calls_round ON llm_calls(round_id);
 CREATE INDEX IF NOT EXISTS idx_rounds_ts ON rounds(ts);
 CREATE INDEX IF NOT EXISTS idx_rounds_market ON rounds(market_id);
 CREATE INDEX IF NOT EXISTS idx_fills_ts ON fills(ts);
@@ -217,6 +238,91 @@ class Store:
                     ),
                 )
         return rid
+
+    def log_call(
+        self,
+        *,
+        role: str,
+        actor: str,
+        engine: str,
+        model: str,
+        usage: Any,
+        cost_usd: float | None = None,
+        duration_ms: int | None = None,
+        round_id: int | None = None,
+    ) -> None:
+        """记一次 LLM 调用的 token。
+
+        round_id 先写 None —— 调用发生在 log_round 之前(那时还没有 round id)。
+        整轮结束后由 attach_calls_to_round() 回填。
+        """
+        with self._conn() as c:
+            c.execute(
+                """INSERT INTO llm_calls
+                   (round_id, ts, role, actor, engine, model,
+                    new_tokens, cache_read, cache_write, out_tokens,
+                    cost_usd, duration_ms)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    round_id,
+                    _now(),
+                    role,
+                    actor,
+                    engine,
+                    model,
+                    getattr(usage, "input_tokens", 0),
+                    getattr(usage, "cache_read", 0),
+                    getattr(usage, "cache_write", 0),
+                    getattr(usage, "output_tokens", 0),
+                    cost_usd,
+                    duration_ms,
+                ),
+            )
+
+    def attach_calls_to_round(self, round_id: int) -> None:
+        """把本轮里还没归属的调用挂到这一轮上。"""
+        with self._conn() as c:
+            c.execute(
+                "UPDATE llm_calls SET round_id = ? WHERE round_id IS NULL",
+                (round_id,),
+            )
+
+    def cache_stats(self, limit: int = 30) -> dict[str, Any]:
+        """缓存命中率 + 最近若干次调用。
+
+        命中率公式和分类阈值抄自 mory 的 RailCacheWidget:
+          ratio = Σcache_read / Σ(cache_read + cache_write + new)   (out 不进分母)
+          单次: cache_read==0 → miss; cache_read > cache_write*2 → hit; 否则 warm
+        """
+        with self._conn() as c:
+            rows = [
+                dict(r)
+                for r in c.execute(
+                    """SELECT ts, role, actor, model, new_tokens, cache_read,
+                              cache_write, out_tokens, cost_usd
+                       FROM llm_calls ORDER BY id DESC LIMIT ?""",
+                    (limit,),
+                ).fetchall()
+            ]
+            agg = c.execute(
+                """SELECT COALESCE(SUM(new_tokens),0) n,
+                          COALESCE(SUM(cache_read),0) r,
+                          COALESCE(SUM(cache_write),0) w,
+                          COALESCE(SUM(out_tokens),0) o,
+                          COUNT(*) c
+                   FROM llm_calls"""
+            ).fetchone()
+
+        denom = agg["r"] + agg["w"] + agg["n"]
+        return {
+            "calls": agg["c"],
+            "new": agg["n"],
+            "cache_read": agg["r"],
+            "cache_write": agg["w"],
+            "out": agg["o"],
+            "ratio": (agg["r"] / denom) if denom else 0.0,
+            "recent": rows,
+        }
 
     def log_fill(
         self,

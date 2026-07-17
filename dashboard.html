@@ -177,6 +177,46 @@
   .num { text-align: right; font-family: var(--mono); }
   .won { color: var(--good); } .lost { color: var(--critical); }
 
+  /* ── 缓存命中率仪表 ──
+     公式和分类阈值抄自 mory 的 RailCacheWidget,但配色没抄 —— 它那套
+     (hit #9bd3a0 / miss #e6a2a2) 在验证器下 CVD ΔE 只有 3.5(deutan):
+     红绿色盲看 hit 和 miss 是一个颜色,而这恰恰是最核心的两个状态。
+
+     换成 status 三色后仍然过不了(绿↔红 ΔE 4.1)—— 因为红绿本身就是色盲
+     问题的原型,换哪对红绿都一样。所以按 dataviz 的规则来:status 颜色必须
+     配 icon + 文字,永不单独承载含义。下面每行都带文字标签和不同形状的点,
+     颜色只是冗余强化。 */
+  .cache-hero { display: flex; align-items: baseline; gap: 10px; }
+  .cache-pct { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .cache-pct.hot { color: var(--good); }
+  .cache-pct.mid { color: var(--ink-2); }
+  .cache-pct.cold { color: var(--critical); }
+  .cache-sub { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+  .cache-bar {
+    height: 3px; background: rgba(255,255,255,0.16); border-radius: 2px;
+    margin: 8px 0 10px; overflow: hidden;
+  }
+  .cache-bar i { display: block; height: 100%; transition: width .3s; border-radius: 2px; }
+  .cache-tot {
+    display: flex; gap: 12px; flex-wrap: wrap; font-family: var(--mono);
+    font-size: 11px; color: var(--ink-2); margin-bottom: 10px;
+  }
+  .cache-tot b { color: var(--ink); font-weight: 600; }
+  .cache-rows { font-family: var(--mono); font-size: 11px; }
+  .crow {
+    display: grid; grid-template-columns: 15px 62px 1fr 52px 52px 46px;
+    gap: 6px; align-items: center; padding: 2px 0; color: var(--ink-2);
+  }
+  .crow .st { font-weight: 700; }             /* ← 文字标签,色盲靠它读 */
+  .crow.hit .st { color: var(--good); }
+  .crow.miss .st { color: var(--critical); }
+  .crow.warm .st { color: var(--muted); }
+  .crow .who { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; }
+  .crow .n { text-align: right; font-variant-numeric: tabular-nums; }
+  .crow .gap { text-align: right; color: var(--muted); }
+  .crow .gap.proof { color: var(--good); font-weight: 700; }
+  .chead { color: var(--muted); font-size: 9.5px; letter-spacing: .06em; }
+
   .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 9px; }
   .legend span { font-size: 11px; color: var(--ink-2); display: flex; align-items: center; gap: 5px; font-family: var(--mono); }
   .swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
@@ -203,6 +243,11 @@
       <h2>结算记录</h2>
       <div class="panel-body scroll" id="settlements"></div>
     </div>
+  </div>
+
+  <div class="panel">
+    <h2>Token 缓存命中率 · 45 分钟轮询 vs 1 小时 TTL</h2>
+    <div class="panel-body" id="cache"></div>
   </div>
 
   <div class="panel">
@@ -289,6 +334,65 @@ ${p.won ? "赢" : "输"} · 累计 ${money(p.pnl)}</title></circle>`
       ${g}<path d="${d}" fill="none" stroke="var(--s1)" stroke-width="2"
         stroke-linejoin="round" stroke-linecap="round"/>${dots}
     </svg>`;
+}
+
+// fmtTok / fmtGap 抄自 mory 的 RailCacheWidget
+const fmtTok = n => n >= 10000 ? Math.round(n / 1000) + "k"
+  : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n || 0);
+const fmtGap = s => s == null ? "—"
+  : s < 10 ? "刚刚" : s < 60 ? "+" + Math.round(s) + "s"
+  : s < 3600 ? "+" + Math.round(s / 60) + "m"
+  : s < 86400 ? "+" + (s / 3600).toFixed(1) + "h" : "+" + Math.round(s / 86400) + "d";
+
+// 状态永远带文字,不靠颜色单独承载 —— 绿↔红在色盲下 ΔE 只有 4.1,
+// 也就是说红绿色盲看 hit 和 miss 是一个颜色。文字才是可读的那层。
+const ST = { hit: "✓ 命中", warm: "~ 温", miss: "✗ 未命中" };
+
+function cachePanel(cs) {
+  const el = $("#cache");
+  if (!cs || !cs.calls) {
+    el.innerHTML = `<div class="empty">还没有 LLM 调用记录<br><br>
+      跑一轮之后这里会显示每次调用的 token 分项和缓存命中情况。</div>`;
+    return;
+  }
+  const pct = Math.round(cs.ratio * 100);
+  // 阈值抄自 RailCacheWidget: ≥60 热 / ≥25 中 / 否则冷
+  const cls = pct >= 60 ? "hot" : pct >= 25 ? "mid" : "cold";
+  const barColor = pct >= 60 ? "var(--good)" : pct >= 25 ? "var(--muted)" : "var(--critical)";
+
+  const rows = (cs.recent || []).map(r => {
+    // gap 是相对更旧的那次算的。这一列才是 TTL 探针:
+    // gap 大(比如 +45m)而状态还是「命中」→ 证明 1h TTL 真的在生效。
+    const proof = r.cls === "hit" && r.gap_s > 1800;
+    return `<div class="crow ${r.cls}">
+      <span></span>
+      <span class="st">${ST[r.cls]}</span>
+      <span class="who">${esc(r.actor)} · ${esc(r.model.replace(/^claude-|^gpt-/, ""))}</span>
+      <span class="n" title="cache_read">读 ${fmtTok(r.cache_read)}</span>
+      <span class="n" title="cache_write">写 ${fmtTok(r.cache_write)}</span>
+      <span class="gap ${proof ? "proof" : ""}" title="${proof
+        ? "距上次调用这么久还命中 —— 1h TTL 生效的直接证据" : "距上一次调用"}">${fmtGap(r.gap_s)}</span>
+    </div>`;
+  }).join("");
+
+  el.innerHTML = `
+    <div class="cache-hero">
+      <span class="cache-pct ${cls}">${pct}%</span>
+      <span class="cache-sub">命中率 · ${cs.calls} 次调用<br>
+        Σ读 / Σ(读+写+新) · 输出不进分母</span>
+    </div>
+    <div class="cache-bar"><i style="width:${pct}%;background:${barColor}"></i></div>
+    <div class="cache-tot">
+      <span>读 <b>${fmtTok(cs.cache_read)}</b> <span style="color:var(--muted)">≈0.1×</span></span>
+      <span>写 <b>${fmtTok(cs.cache_write)}</b> <span style="color:var(--muted)">≈1.25-2×</span></span>
+      <span>新 <b>${fmtTok(cs.new)}</b></span>
+      <span>出 <b>${fmtTok(cs.out)}</b></span>
+    </div>
+    <div class="crow chead">
+      <span></span><span>状态</span><span>调用方</span>
+      <span class="n">缓存读</span><span class="n">缓存写</span><span class="gap">间隔</span>
+    </div>
+    <div class="cache-rows">${rows}</div>`;
 }
 
 function settlements(rows) {
@@ -422,6 +526,7 @@ function render(s) {
   tiles(s.summary);
   curve(s.curve);
   settlements(s.settlements);
+  cachePanel(s.cache);
   $("#rounds").innerHTML = s.rounds.length
     ? s.rounds.map(roundBlock).join("")
     : `<div class="empty">还没有轮次</div>`;

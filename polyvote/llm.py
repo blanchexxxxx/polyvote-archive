@@ -21,10 +21,12 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -36,20 +38,75 @@ class LLMError(Exception):
 
 
 @dataclass
+class Usage:
+    """真实 token 消耗。
+
+    订阅制下 cost_usd 只是"走 API 会花多少"的折算,规划配额时没用 ——
+    真正的约束是 token 和限流窗口。所以这里把四个数原样记下来。
+
+    cache_write 是这套一次性调用的特有开销:每次调用都是全新 session,
+    写进去的缓存下一次能不能读到取决于 TTL 和调用间隔。间隔长过 TTL
+    就是纯浪费 —— 写了从没人读。
+    """
+    input_tokens: int = 0
+    cache_write: int = 0     # cache_creation_input_tokens
+    cache_read: int = 0      # cache_read_input_tokens
+    output_tokens: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.input_tokens + self.cache_write + self.cache_read + self.output_tokens
+
+    @property
+    def billable_equiv(self) -> float:
+        """按计费权重折算的等效 token。
+
+        cache write 约 1.25×,cache read 约 0.1×,普通 input 1×,output 另算。
+        用来横向比较不同调用式的真实开销 —— 一次 15k 的 cache write 和一次
+        15k 的 cache read 差 12 倍。
+        """
+        return (
+            self.input_tokens
+            + self.cache_write * 1.25
+            + self.cache_read * 0.1
+            + self.output_tokens
+        )
+
+
+@dataclass
 class LLMResult:
     data: dict[str, Any]
     model: str
     engine: str
     cost_usd: float | None = None
     duration_ms: int | None = None
+    usage: Usage = field(default_factory=Usage)
+    rate_limit: dict[str, Any] | None = None
 
 
 def _check_bin(binary: str, engine: str) -> None:
     if shutil.which(binary) is None:
         raise LLMError(
             f"{engine} 的可执行文件 {binary!r} 不在 PATH 上。"
-            f"(Pi 上应为 /usr/bin/{binary};本机开发请确认已安装并登录)"
+            f"(应在 /usr/bin/{binary};本机开发请确认已安装并登录)"
         )
+
+
+def _spawn_env() -> dict[str, str]:
+    """给子进程的环境。
+
+    ENABLE_PROMPT_CACHING_1H=1 —— 把 prompt 缓存 TTL 从 5 分钟拉到 1 小时。
+    没有对应的 CLI flag,claude 自己读这个变量,只能靠环境继承传进去。
+
+    这个和 loop.interval_minutes=45 是**一对**,别单独改其中一个:
+      45 分钟 < 60 分钟 TTL  →  上一轮写的缓存,这一轮还能读到
+      间隔 > TTL             →  每轮都是冷启,cache_write 白付,从没人读
+    (同样的约束在别处见过:某个项目的保活是 50 分钟,注释写着"务必 < 60")
+
+    cache_read 约 0.1×,cache_write 约 1.25-2× —— 差一个数量级,所以这不是
+    微优化。观测台的命中率仪表就是盯这个的。
+    """
+    return {**os.environ, "ENABLE_PROMPT_CACHING_1H": "1"}
 
 
 def call_claude(
@@ -114,6 +171,7 @@ def call_claude(
             text=True,
             timeout=timeout_s,
             stdin=subprocess.DEVNULL,
+            env=_spawn_env(),
         )
     except subprocess.TimeoutExpired as e:
         raise LLMError(f"claude {model} 超时 ({timeout_s}s)") from e
@@ -146,12 +204,27 @@ def call_claude(
             f"—— 通常是 --max-turns 太小把 schema 工具调用掐断了"
         )
 
+    u = env.get("usage") or {}
     return LLMResult(
         data=data,
         model=model,
         engine="claude",
         cost_usd=env.get("total_cost_usd"),
         duration_ms=env.get("duration_ms"),
+        usage=Usage(
+            input_tokens=int(u.get("input_tokens") or 0),
+            cache_write=int(u.get("cache_creation_input_tokens") or 0),
+            cache_read=int(u.get("cache_read_input_tokens") or 0),
+            output_tokens=int(u.get("output_tokens") or 0),
+        ),
+        # 订阅限流信息。CLI 有时会带,带了就记 —— 这是唯一能看到
+        # "还剩多少窗口"的地方。
+        rate_limit={
+            k: env[k]
+            for k in ("rate_limit_type", "rate_limit_status", "rate_limit_reset")
+            if k in env
+        }
+        or None,
     )
 
 
@@ -172,6 +245,25 @@ def _last_json_line(stdout: str) -> dict[str, Any] | None:
         if isinstance(parsed, dict):
             return parsed
     return None
+
+
+_CODEX_TOK_RE = re.compile(r"tokens used[:\s]+([\d,]+)", re.IGNORECASE)
+
+
+def _codex_tokens(stdout: str) -> Usage:
+    """从 codex exec 的 banner 里抠 token 数。
+
+    codex exec 只打一个 "tokens used  12,006" 的合计,不像 claude 那样给
+    input/cache/output 的分项。所以只能记总数,归到 input_tokens 上 ——
+    宁可记一个粗数,也别把 Codex 的消耗当成 0。
+    """
+    m = _CODEX_TOK_RE.search(stdout)
+    if not m:
+        return Usage()
+    try:
+        return Usage(input_tokens=int(m.group(1).replace(",", "")))
+    except ValueError:
+        return Usage()
 
 
 def call_codex(
@@ -223,6 +315,7 @@ def call_codex(
                 text=True,
                 timeout=timeout_s,
                 stdin=subprocess.DEVNULL,
+                env=_spawn_env(),
             )
         except subprocess.TimeoutExpired as e:
             raise LLMError(f"codex {model} 超时 ({timeout_s}s)") from e
@@ -237,8 +330,9 @@ def call_codex(
             raise LLMError(
                 f"codex {model} 的 stdout 里找不到 JSON 结果: {p.stdout[-400:]!r}"
             )
+        usage = _codex_tokens(p.stdout)
 
-    return LLMResult(data=data, model=model, engine="codex")
+    return LLMResult(data=data, model=model, engine="codex", usage=usage)
 
 
 _DISPATCH = {"claude": call_claude, "codex": call_codex}
