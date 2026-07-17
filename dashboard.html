@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POLYVOTE · 观测台</title>
+<style>
+  /* 调色板取自 dataviz 参考实例的 dark 列,4 个 series slot 已过验证器:
+     node validate_palette.js "#3987e5,#008300,#d55181,#c98500" --mode dark --surface "#12120f"
+     → 全部 PASS,最差相邻 CVD ΔE 13.0,对比度全部 ≥3:1
+     别随手改成霓虹色 —— 那些在色盲模拟下会糊成一团。 */
+  :root {
+    --plane:      #0d0d0d;
+    --surface:    #12120f;
+    --surface-2:  #1a1a19;
+    --ink:        #ffffff;
+    --ink-2:      #c3c2b7;
+    --muted:      #898781;
+    --grid:       #2c2c2a;
+    --baseline:   #383835;
+    --ring:       rgba(255,255,255,0.10);
+
+    --s1: #3987e5;  /* opus */
+    --s2: #008300;  /* fable */
+    --s3: #d55181;  /* sol */
+    --s4: #c98500;  /* 市场价 / 研究员 */
+
+    --good:     #0ca30c;
+    --warning:  #fab219;
+    --critical: #d03b3b;
+
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--plane); color: var(--ink);
+    font-family: var(--sans); font-size: 14px; line-height: 1.5;
+  }
+  .wrap { max-width: 1500px; margin: 0 auto; padding: 16px; }
+
+  /* ── 顶栏 ── */
+  .top {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 10px 14px; background: var(--surface); border: 1px solid var(--ring);
+    border-radius: 8px; margin-bottom: 14px;
+  }
+  .brand { font-family: var(--mono); font-weight: 700; letter-spacing: .14em; font-size: 13px; }
+  .brand .dim { color: var(--muted); font-weight: 400; }
+  .pill {
+    font-family: var(--mono); font-size: 11px; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--ring); color: var(--ink-2); letter-spacing: .06em;
+  }
+  .pill.dry { border-color: var(--warning); color: var(--warning); }
+  .pill.live { border-color: var(--critical); color: var(--critical); }
+  .clock { margin-left: auto; font-family: var(--mono); color: var(--muted); font-size: 12px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); display: inline-block; }
+
+  /* ── 统计瓦片 ── */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .tile {
+    background: var(--surface); border: 1px solid var(--ring); border-radius: 8px; padding: 12px 14px;
+  }
+  .tile .k { font-size: 11px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+  .tile .v { font-size: 26px; font-weight: 650; margin-top: 4px; letter-spacing: -.02em; }
+  .tile .sub { font-size: 11px; color: var(--muted); font-family: var(--mono); margin-top: 2px; }
+  .v.pos { color: var(--good); } .v.neg { color: var(--critical); } .v.na { color: var(--muted); font-size: 20px; }
+
+  /* ── 面板 ── */
+  .panel { background: var(--surface); border: 1px solid var(--ring); border-radius: 8px; margin-bottom: 14px; }
+  .panel > h2 {
+    margin: 0; padding: 10px 14px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--muted); border-bottom: 1px solid var(--ring); font-family: var(--mono); font-weight: 600;
+  }
+  .panel-body { padding: 14px; }
+  .cols { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; }
+  @media (max-width: 980px) { .cols { grid-template-columns: 1fr; } }
+
+  /* ── 轮次卡 ── */
+  .round { border-bottom: 1px solid var(--grid); }
+  .round:last-child { border-bottom: 0; }
+  .rhead {
+    display: grid; grid-template-columns: 78px 1fr auto auto; gap: 12px; align-items: center;
+    padding: 11px 14px; cursor: pointer; user-select: none;
+  }
+  .rhead:hover { background: var(--surface-2); }
+  .rts { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .rq { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rvotes { display: flex; gap: 3px; align-items: center; }
+  .vchip {
+    font-family: var(--mono); font-size: 10px; padding: 2px 5px; border-radius: 3px;
+    border: 1px solid var(--ring); color: var(--ink-2); white-space: nowrap;
+  }
+  /* 方向不靠颜色单独承载 —— chip 里同时印文字。色盲/打印都读得出。 */
+  .vchip.YES { border-color: var(--good); color: var(--good); }
+  .vchip.NO { border-color: var(--critical); color: var(--critical); }
+  .vchip.ABSTAIN { color: var(--muted); }
+  .act {
+    font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 3px;
+    border: 1px solid var(--ring); white-space: nowrap;
+  }
+  .act.BUY { border-color: var(--good); color: var(--good); }
+  .act.SELL { border-color: var(--warning); color: var(--warning); }
+  .act.SKIP { color: var(--muted); }
+  .act.blocked { border-color: var(--critical); color: var(--critical); }
+
+  .rbody { display: none; padding: 0 14px 16px 92px; }
+  .round.open .rbody { display: block; }
+  .round.open .rhead { background: var(--surface-2); }
+  .caret { color: var(--muted); font-family: var(--mono); font-size: 10px; }
+
+  .sec { margin-top: 14px; }
+  .sec > h3 {
+    font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+    font-family: var(--mono); margin: 0 0 7px; font-weight: 600;
+  }
+  .facts { margin: 0; padding-left: 16px; }
+  .facts li { font-size: 12.5px; color: var(--ink-2); margin-bottom: 3px; }
+  .facts .src { color: var(--muted); font-family: var(--mono); font-size: 10.5px; }
+  .unc li { color: var(--warning); }
+  .brief { font-size: 12.5px; color: var(--ink-2); margin-bottom: 8px; }
+
+  .agent {
+    border-left: 2px solid var(--muted); padding: 7px 0 7px 11px; margin-bottom: 9px;
+  }
+  .agent.opus  { border-left-color: var(--s1); }
+  .agent.fable { border-left-color: var(--s2); }
+  .agent.sol   { border-left-color: var(--s3); }
+  .agent .ah { display: flex; gap: 9px; align-items: baseline; flex-wrap: wrap; }
+  .agent .an { font-family: var(--mono); font-size: 11.5px; font-weight: 600; }
+  .agent .am { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+  .agent .nums { font-family: var(--mono); font-size: 11px; color: var(--ink-2); margin-left: auto; }
+  .agent .reason { font-size: 12.5px; color: var(--ink-2); margin-top: 4px; }
+  .agent.failed { border-left-color: var(--critical); }
+  .agent.failed .reason { color: var(--critical); font-family: var(--mono); font-size: 11px; }
+  .drift { font-family: var(--mono); }
+  .drift b { color: var(--ink); }
+
+  /* 强制的推理链: NO 在左 YES 在右 —— 跟 schema 的字段顺序一致。
+     顺序是刻意的:模型系统性地 over-predict YES,先写 NO 能压住。 */
+  .chain { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 7px; }
+  @media (max-width: 760px) { .chain { grid-template-columns: 1fr; } }
+  .chain .ct {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .chain ul { margin: 3px 0 0; padding-left: 15px; }
+  .chain li { font-size: 11.5px; color: var(--ink-2); margin-bottom: 2px; }
+  .chain .cno li::marker { color: var(--critical); }
+  .chain .cyes li::marker { color: var(--good); }
+
+  /* 窗口内证据 0 条 = mech-predict 量出来占 W-1 Brier 质量 20.9% 的失败模式 */
+  .facts .typeb { color: var(--muted); }
+  .facts .tag { font-family: var(--mono); font-size: 9.5px; }
+  .noa {
+    color: var(--warning); font-size: 11.5px; font-family: var(--mono);
+    border: 1px solid var(--warning); border-radius: 4px; padding: 5px 8px; margin-top: 6px;
+  }
+
+  .decision { background: var(--surface-2); border: 1px solid var(--ring); border-radius: 6px; padding: 11px; }
+  .decision .reason { font-size: 12.5px; color: var(--ink-2); margin-top: 6px; }
+  .blocked-box { border-color: var(--critical); }
+  .rn { font-family: var(--mono); font-size: 11px; color: var(--critical); margin: 2px 0 0; }
+
+  /* ── 图表 ── */
+  svg { display: block; width: 100%; overflow: visible; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .axis { stroke: var(--baseline); stroke-width: 1; }
+  .tick { fill: var(--muted); font-size: 10px; font-family: var(--mono); }
+  .empty { color: var(--muted); font-size: 12.5px; text-align: center; padding: 26px 12px; font-family: var(--mono); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { text-align: left; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+       color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--ring); }
+  td { padding: 6px 8px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: 0; }
+  .num { text-align: right; font-family: var(--mono); }
+  .won { color: var(--good); } .lost { color: var(--critical); }
+
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 9px; }
+  .legend span { font-size: 11px; color: var(--ink-2); display: flex; align-items: center; gap: 5px; font-family: var(--mono); }
+  .swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <span class="brand">POLYVOTE <span class="dim">× POLYMARKET</span></span>
+    <span class="pill" id="mode">…</span>
+    <span class="pill" id="agents">…</span>
+    <span class="clock"><span class="dot" id="live"></span> <span id="clock">--:--:--</span> UTC</span>
+  </div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="cols">
+    <div class="panel">
+      <h2>累计盈亏 · 已结算</h2>
+      <div class="panel-body" id="curve"></div>
+    </div>
+    <div class="panel">
+      <h2>结算记录</h2>
+      <div class="panel-body scroll" id="settlements"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>决策轮次 · 点开看每个 agent 的完整思路</h2>
+    <div id="rounds"></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const money = n => (n >= 0 ? "+$" : "-$") + Math.abs(n).toFixed(2);
+const hhmm = ts => (ts || "").slice(5, 16).replace("T", " ");
+
+// 最新一轮默认展开 —— 打开观测台最想看的就是"刚才那轮它想干嘛",
+// 不该还要先点一下。用户手动折叠后 seeded 保持 true,不会被下次轮询强行掰开。
+let openRounds = new Set();
+let seeded = false;
+
+function tiles(s) {
+  const wr = s.win_rate == null ? null : (s.win_rate * 100).toFixed(0) + "%";
+  const roi = s.roi == null ? null : (s.roi * 100).toFixed(1) + "%";
+  // 「交易盈亏」是真美元。「配额当量」是 CLI 报的 total_cost_usd ——
+  // 那是"走 API 会花多少钱"的折算,走订阅时它不是真实支出。
+  //
+  // 之前这里有个「净额 (扣 LLM)」瓦片,拿后者去减前者 —— 那是虚拟单位减真实单位,
+  // 算出来永远是深度负的,毫无意义。订阅制下真正的约束是配额窗口(会不会饿到夏),
+  // 不是美元。所以两个数分开摆,不做减法。
+  const t = [
+    ["轮次", s.rounds, `${s.acted} 次动手 · ${s.rounds - s.acted} 次跳过`, ""],
+    ["交易盈亏", s.settled ? money(s.trade_pnl_usd) : "—",
+      s.settled ? `真美元 · 本金 $${s.staked_usd.toFixed(2)}` : "还没有已结算交易",
+      s.settled ? (s.trade_pnl_usd >= 0 ? "pos" : "neg") : "na"],
+    ["胜率", wr ?? "—", s.settled ? `${s.wins} 胜 / ${s.losses} 负` : "需要市场先结算", wr ? "" : "na"],
+    ["ROI", roi ?? "—", s.settled ? "已结算本金回报" : "—", roi ? (s.roi >= 0 ? "pos" : "neg") : "na"],
+    ["配额当量", "$" + s.llm_cost_usd.toFixed(2),
+      `${s.rounds ? "$" + (s.llm_cost_usd / s.rounds).toFixed(2) + "/轮 · " : ""}订阅制下非真实支出`, ""],
+    ["5小时窗口占用", s.window_usd != null ? "$" + s.window_usd.toFixed(2) : "—",
+      "同一份配额夏也在用", s.window_usd > 15 ? "neg" : ""],
+  ];
+  $("#tiles").innerHTML = t.map(([k, v, sub, cls]) =>
+    `<div class="tile"><div class="k">${k}</div><div class="v ${cls}">${v}</div><div class="sub">${esc(sub)}</div></div>`
+  ).join("");
+}
+
+function curve(pts) {
+  const el = $("#curve");
+  if (!pts.length) {
+    el.innerHTML = `<div class="empty">还没有已结算的交易<br><br>
+      没有结算数据就没有 PnL —— 这里不画一条假的平线充数。<br>
+      市场解决后 bot 会自动回写胜负。</div>`;
+    return;
+  }
+  const W = 640, H = 200, P = { t: 12, r: 14, b: 24, l: 46 };
+  const iw = W - P.l - P.r, ih = H - P.t - P.b;
+  const ys = pts.map(p => p.pnl).concat([0]);
+  let lo = Math.min(...ys), hi = Math.max(...ys);
+  if (hi === lo) { hi += 1; lo -= 1; }
+  const pad = (hi - lo) * 0.12; lo -= pad; hi += pad;
+  const X = i => P.l + (pts.length === 1 ? iw / 2 : (i / (pts.length - 1)) * iw);
+  const Y = v => P.t + ih - ((v - lo) / (hi - lo)) * ih;
+
+  const ticks = [lo, lo + (hi - lo) / 2, hi];
+  let g = ticks.map(v =>
+    `<line class="gridline" x1="${P.l}" x2="${W - P.r}" y1="${Y(v)}" y2="${Y(v)}"/>
+     <text class="tick" x="${P.l - 7}" y="${Y(v) + 3}" text-anchor="end">${v >= 0 ? "+" : ""}${v.toFixed(1)}</text>`
+  ).join("");
+  if (lo < 0 && hi > 0) g += `<line class="axis" x1="${P.l}" x2="${W - P.r}" y1="${Y(0)}" y2="${Y(0)}"/>`;
+
+  const d = pts.map((p, i) => `${i ? "L" : "M"}${X(i)},${Y(p.pnl)}`).join("");
+  // 2px 线宽、≥8px 标记点,按 marks-and-anatomy 的规格
+  const dots = pts.map((p, i) =>
+    `<circle cx="${X(i)}" cy="${Y(p.pnl)}" r="4" fill="${p.won ? "var(--good)" : "var(--critical)"}"
+      stroke="var(--surface)" stroke-width="2"><title>${esc(p.q || "")}
+${p.won ? "赢" : "输"} · 累计 ${money(p.pnl)}</title></circle>`
+  ).join("");
+
+  el.innerHTML = `
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--good)"></i>赢</span>
+      <span><i class="swatch" style="background:var(--critical)"></i>输</span>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+      ${g}<path d="${d}" fill="none" stroke="var(--s1)" stroke-width="2"
+        stroke-linejoin="round" stroke-linecap="round"/>${dots}
+    </svg>`;
+}
+
+function settlements(rows) {
+  const el = $("#settlements");
+  if (!rows.length) { el.innerHTML = `<div class="empty">还没有结算</div>`; return; }
+  el.innerHTML = `<table><thead><tr>
+      <th>市场</th><th>我方</th><th>结果</th><th class="num">盈亏</th></tr></thead><tbody>` +
+    rows.map(s => `<tr>
+      <td title="${esc(s.question)}">${esc((s.question || "").slice(0, 34))}</td>
+      <td class="num">${esc(s.winning_side === "YES" ? "YES" : "NO")}</td>
+      <td class="${s.won ? "won" : "lost"}">${s.won ? "✓ 赢" : "✗ 输"}</td>
+      <td class="num ${s.pnl_usd >= 0 ? "won" : "lost"}">${money(s.pnl_usd)}</td>
+    </tr>`).join("") + `</tbody></table>`;
+}
+
+function agentBlock(v) {
+  if (v.error) {
+    return `<div class="agent failed">
+      <div class="ah"><span class="an">${esc(v.voter_id)}</span>
+        <span class="am">${esc(v.model)}</span>
+        <span class="nums">调用失败 · 不计票</span></div>
+      <div class="reason">${esc(v.error).slice(0, 260)}</div></div>`;
+  }
+  // base_rate → fair_price 的位移是最能看出模型在想什么的一个数:
+  // 它先给了同类事件的基准,再说自己凭什么偏离。偏得越多,越该有硬证据。
+  const br = v.base_rate != null
+    ? `<span class="drift">基准 ${v.base_rate.toFixed(3)} → ${v.fair_price?.toFixed(3)}
+       <b>${v.fair_price - v.base_rate >= 0 ? "+" : ""}${(v.fair_price - v.base_rate).toFixed(3)}</b></span>`
+    : "";
+  const chain = (v.reasons_no?.length || v.reasons_yes?.length) ? `
+    <div class="chain">
+      ${v.reasons_no?.length ? `<div class="cno"><span class="ct">NO 的理由</span><ul>${
+        v.reasons_no.map(r => `<li>${esc(r)}</li>`).join("")}</ul></div>` : ""}
+      ${v.reasons_yes?.length ? `<div class="cyes"><span class="ct">YES 的理由</span><ul>${
+        v.reasons_yes.map(r => `<li>${esc(r)}</li>`).join("")}</ul></div>` : ""}
+    </div>` : "";
+
+  return `<div class="agent ${esc(v.voter_id)}">
+    <div class="ah">
+      <span class="an">${esc(v.voter_id)}</span>
+      <span class="am">${esc(v.model)}</span>
+      <span class="vchip ${esc(v.side)}">${esc(v.side)}</span>
+      <span class="nums">${br} · 信心 ${v.confidence}/10${
+        v.cost_usd ? " · $" + v.cost_usd.toFixed(3) : ""}</span>
+    </div>
+    <div class="reason">${esc(v.reason)}</div>
+    ${chain}</div>`;
+}
+
+function roundBlock(r) {
+  const t = r.tally || {};
+  const chips = (r.votes || []).map(v =>
+    `<span class="vchip ${esc(v.side)}" title="${esc(v.voter_id)}: ${esc(v.side)}">${
+      esc(v.voter_id)}·${esc(v.side === "ABSTAIN" ? "弃" : v.side)}</span>`).join("");
+  const blocked = !r.allowed && r.action !== "SKIP";
+  const rs = r.research;
+  const open = openRounds.has(r.id);
+
+  return `<div class="round ${open ? "open" : ""}" data-id="${r.id}">
+    <div class="rhead">
+      <span class="rts">${hhmm(r.ts)}</span>
+      <span class="rq" title="${esc(r.question)}">${esc(r.question)}</span>
+      <span class="rvotes">${chips}</span>
+      <span class="act ${esc(r.action)} ${blocked ? "blocked" : ""}">${
+        blocked ? "风控拦截" : esc(r.action)}</span>
+    </div>
+    <div class="rbody">
+      <div class="sec">
+        <h3>行情</h3>
+        <div class="brief">YES 报价 <b>${r.yes_price?.toFixed(3)}</b> ·
+          24h 成交量 $${(r.volume_24h || 0).toLocaleString(undefined, {maximumFractionDigits: 0})} ·
+          三家平均估值 <b>${t.mean_fair_price != null ? t.mean_fair_price.toFixed(3) : "—"}</b> ·
+          分歧 ${t.fair_price_spread != null ? t.fair_price_spread.toFixed(3) : "—"}</div>
+      </div>
+
+      ${rs ? (() => {
+        const facts = rs.facts || [];
+        const a = facts.filter(f => f.within_window).length;
+        const b = facts.length - a;
+        return `<div class="sec">
+        <h3>研究简报 · ${esc(rs.model)}${facts.length ? ` · 窗口内 ${a} 条 / 背景 ${b} 条` : ""}${
+          rs.searched ? "" : " · ⚠ 未联网,来自训练数据"}</h3>
+        <div class="brief">${esc(rs.summary)}</div>
+        ${facts.length ? `<ul class="facts">${facts.map(f =>
+          `<li class="${f.within_window ? "" : "typeb"}">
+            <span class="tag src">${f.within_window ? "[窗口内]" : "[背景]"}</span>
+            ${esc(f.claim)} <span class="src">[${esc(f.source)}${
+            f.date && f.date !== "unknown" ? " · " + esc(f.date) : ""}]</span></li>`).join("")}</ul>` : ""}
+        ${(a === 0 && b > 0) ? `<div class="noa">⚠ 窗口内证据 0 条 —— 全是背景资料。
+          主体知名度跟那件具体的事有没有发生无关。分析师应退回 base rate 并压低信心。</div>` : ""}
+        ${rs.uncertainties?.length ? `<ul class="facts unc">${rs.uncertainties.map(u =>
+          `<li>${esc(u)}</li>`).join("")}</ul>` : ""}
+      </div>`; })() : ""}
+
+      <div class="sec">
+        <h3>分析师 · 三家看同一份简报,均未被告知市场报价</h3>
+        ${(r.votes || []).map(agentBlock).join("")}
+      </div>
+
+      <div class="sec">
+        <h3>决策</h3>
+        <div class="decision ${blocked ? "blocked-box" : ""}">
+          <div class="ah">
+            <span class="act ${esc(r.action)}">${esc(r.action)}</span>
+            ${r.action !== "SKIP" ? `<span class="nums" style="font-family:var(--mono);font-size:11px;color:var(--ink-2)">
+              ${esc(r.side)} · $${(r.size_usd || 0).toFixed(2)} @ ${(r.limit_price || 0).toFixed(3)}
+              · 信心 ${r.confidence}/10</span>` : ""}
+          </div>
+          <div class="reason">${esc(r.reason)}</div>
+          ${blocked ? `<div style="margin-top:7px"><h3 style="margin-bottom:3px">风控拦截</h3>${
+            (r.risk_notes || []).map(n => `<p class="rn">✗ ${esc(n)}</p>`).join("")}</div>` : ""}
+        </div>
+      </div>
+    </div></div>`;
+}
+
+function render(s) {
+  if (!s.ready) {
+    $("#rounds").innerHTML = `<div class="empty">${esc(s.reason)}</div>`;
+    $("#mode").textContent = "等待数据";
+    return;
+  }
+  $("#mode").textContent = s.dry_run ? "DRY-RUN · 不下真单" : "实盘 · 真钱";
+  $("#mode").className = "pill " + (s.dry_run ? "dry" : "live");
+  const models = new Set();
+  s.rounds.forEach(r => (r.votes || []).forEach(v => models.add(v.voter_id)));
+  $("#agents").textContent = [...models].join(" · ") || "—";
+
+  if (!seeded && s.rounds.length) { openRounds.add(s.rounds[0].id); seeded = true; }
+
+  tiles(s.summary);
+  curve(s.curve);
+  settlements(s.settlements);
+  $("#rounds").innerHTML = s.rounds.length
+    ? s.rounds.map(roundBlock).join("")
+    : `<div class="empty">还没有轮次</div>`;
+
+  document.querySelectorAll(".rhead").forEach(h => h.onclick = () => {
+    const el = h.parentElement, id = +el.dataset.id;
+    el.classList.toggle("open");
+    el.classList.contains("open") ? openRounds.add(id) : openRounds.delete(id);
+  });
+}
+
+async function tick() {
+  try {
+    const r = await fetch("/api/state");
+    render(await r.json());
+    $("#live").style.background = "var(--good)";
+  } catch (e) {
+    $("#live").style.background = "var(--critical)";
+  }
+  $("#clock").textContent = new Date().toISOString().slice(11, 19);
+}
+tick();
+setInterval(tick, 5000);
+</script>
+</body>
+</html>

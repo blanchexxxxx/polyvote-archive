@@ -1,0 +1,35 @@
+# 交易数据 —— 每个人的库都不一样,而且里面是你的实盘记录
+*.db
+*.db-journal
+*.db-wal
+
+# 日志
+*.log
+
+# 你自己机器的部署坐标 (Pi 的 IP / 主机名 / SSH key 路径)。
+# 这些进了 git 历史就洗不掉了 —— 库翻公开时它们还在历史里。
+deploy/pi.env
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# 私钥绝不进库。POLYVOTE_PRIVATE_KEY 走环境变量。
+# 这几条是保险丝,不是正常路径 —— 真按设计走的话根本不会有这些文件。
+*.pem
+*.key
+id_*
+!id_*.md
+.env
+.env.*
+!.env.example

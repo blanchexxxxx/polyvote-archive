@@ -1,0 +1,25 @@
+[Unit]
+Description=polyvote 交易 bot (研究→投票→决策)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/polyvote
+# 私钥只从环境变量读。实盘时:
+#   systemctl --user edit polyvote-bot  →  [Service] Environment="POLYVOTE_PRIVATE_KEY=0x..."
+# 别写进这个文件 —— 它会进 git。
+ExecStart=%h/polyvote/.venv/bin/python -u run.py --config %h/polyvote/config.yaml
+Restart=always
+RestartSec=30
+StandardOutput=append:%h/polyvote/bot.log
+StandardError=append:%h/polyvote/bot.log
+
+# 别跟夏抢 CPU。投票是串行的,慢一点无所谓,但不能让 cc_engine 的
+# event loop 饿着 —— cc_engine.py:1101-1104 说夏大轮次时纯内存 endpoint
+# 都要 >3s,再加压她会看着卡死。
+Nice=10
+CPUWeight=30
+IOWeight=30
+
+[Install]
+WantedBy=default.target

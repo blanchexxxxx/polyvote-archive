@@ -1,0 +1,4 @@
+PyYAML>=6.0
+requests>=2.31
+# 实盘才需要,dry-run 不装也能跑:
+py-clob-client>=0.34.6

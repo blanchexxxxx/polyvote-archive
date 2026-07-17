@@ -1,0 +1,165 @@
+# polyvote 配置 —— 模型只在这里改，别处不存在第二份模型清单
+#
+# 这个文件是刻意做成"单一注册表"的。mory 那边模型散在 8+ 处
+# (backend allowlist / frontend 菜单 / forge 窗口表 / cron 硬编码),
+# 结果 Fable 5 上线时前端有按钮、后端 allowlist 没加,点了直接 400。
+# 详见 backend/api/routers/chat.py:371-373 的注释。这里不重复那个坑。
+
+# ── 研究员 ────────────────────────────────────────────────
+# 查资料这个活跟判断分开,交给便宜模型干一次,三个投票人共用同一份事实。
+#
+# 为什么不让三个投票人各查各的 (第一版就是那样):
+#   1. 三倍成本 —— 实测 haiku $0.126 vs sonnet-5 $0.725,产出没差
+#   2. 更要命的是:三家查到的事实不一样,那三票的分歧到底是"判断不同"
+#      还是"看到的东西不同"根本分不清。共识投票的价值前提是大家在
+#      同一份证据上做判断,否则测的是搜索引擎的随机性。
+#
+# 代价:研究员漏掉的东西三个投票人一起瞎。这是拿多样性换一致性,
+# 换得值 —— 判断分歧才是我们想测的信号。
+researcher:
+  engine: claude
+  model: claude-haiku-4-5
+  effort: low
+
+# ── 投票团 ────────────────────────────────────────────────
+# 三个投票人拿到同一份事实简报 + 同一个问题,各自独立判断。
+# 它们没有工具 —— 事实已经摆好了,它们的活是判断,不是搜索。
+# 想加/减投票人,直接改这个列表,代码不用动。
+voters:
+  - id: opus
+    engine: claude
+    model: claude-opus-4-8
+    effort: medium
+  - id: fable
+    engine: claude
+    model: claude-fable-5
+    effort: medium
+  - id: sol
+    engine: codex
+    model: gpt-5.6-sol
+    effort: null          # codex 的 effort 传法待验,先不传
+
+# ── 最终决策者 ────────────────────────────────────────────
+# 拿到全部选票 + 原始市场数据后拍板的那个。
+decider:
+  engine: claude
+  model: claude-fable-5
+  effort: high
+
+# ── 已知可用模型 (仅供参考 + 软校验) ──────────────────────
+# 填了不在这里的模型只会打 WARNING,不会拒绝执行。
+# 这是刻意的:硬 allowlist 正是 mory 那个 400 bug 的成因。
+# 模型升级时直接改上面的 voters/decider 即可,这张表更不更新都不影响运行。
+known_models:
+  claude:
+    - claude-haiku-4-5      # 研究员。实测 $0.126/次 vs sonnet-5 $0.725,产出没差
+    - claude-fable-5
+    - claude-sonnet-5
+    - claude-opus-4-8
+    - claude-opus-4-7
+    - claude-sonnet-4-6
+  codex:
+    - gpt-5.6-sol
+    - gpt-5.6-terra
+    - gpt-5.6-luna
+
+# ── 引擎调用参数 ──────────────────────────────────────────
+engines:
+  claude:
+    bin: claude
+    timeout_s: 180
+    # 这三个是压成本的关键,别删:
+    #   --setting-sources ""  → 不加载用户设置/MCP (省 110k cache read)
+    #   --allowedTools ""     → 不发工具定义 (cache_creation 15.7k → 3.5k)
+    #   --system-prompt       → 换掉 Claude Code 的 agentic 系统提示
+    # 实测: 带这三个 $0.17/次, 不带 $0.73/次
+  codex:
+    bin: codex
+    timeout_s: 240
+
+# ── 风控 (代码层硬上限,LLM 无权突破) ──────────────────────
+risk:
+  dry_run: true                      # ← 实盘总开关。true = 只记录不下单
+  max_notional_per_trade_usd: 5.0
+  max_notional_per_day_usd: 50.0
+  max_position_per_market_usd: 20.0
+  max_open_positions: 5
+  min_decider_confidence: 6          # 决策者置信度低于此值 → 不下单
+  min_vote_agreement: 2              # 至少 N 票同向 (ABSTAIN 不计)
+  max_price_for_buy: 0.90            # 不追已定盘的票
+  min_price_for_buy: 0.05
+
+  # 一票的 fair_price 要偏离市价多少才算一票。0.08 = 8 个点。
+  # 调低会让 bot 频繁交易噪声;调高则几乎不动手。
+  # 参考:Polymarket 主流盘点差通常 1-2 个点,低于那个的 edge 是幻觉。
+  min_edge: 0.08
+
+  # 单票信心下限。低于此值的票强制弃权,不管 edge 多大。
+  # 这道闸门是实测踩出来的,别调到 4 以下:
+  #   模型对 2026 世界杯一无所知 → 老实报 fair=0.500 conf=1
+  #   市价 0.411 → edge=+0.089 > min_edge → 被推导成 YES 票
+  # 也就是"无知"被当成了"edge"。均匀先验在任何非 0.5 的盘上都像机会。
+  min_voter_confidence: 5
+
+  # 投票人估值分歧上限。三个模型分别报 0.2/0.5/0.8 时平均值 0.5 毫无意义,
+  # 这种情况必须拒单而不是照着均值下注。
+  max_fair_price_spread: 0.25
+
+# ── 研究阶段 ──────────────────────────────────────────────
+research:
+  # 只有研究员能上网。没有实时信息的模型不可能赢过流动的预测市场 ——
+  # 市场价里已经含了全部公开信息,模型能贡献的只有一个过时的先验。
+  # (实测:第一版没给工具时 fable-5 自己就想去搜世界杯结果,把 turn 烧光后崩掉)
+  #
+  # 想彻底关掉研究就设成 [] —— 但那样投票人只能在无知上下注或永远弃权。
+  #
+  # 注意 RESEARCHER_SYSTEM 里明令禁止搜索赔率/Polymarket/博彩盘口 ——
+  # 简报里一旦出现市场价,致盲就白做了,那三票是在拿市场衡量市场。
+  researcher_tools:
+    - WebSearch
+    - WebFetch
+
+  # --max-turns。踩过两次的坑:
+  #   给 1 → --json-schema 的工具调用发不出去,直接 error_max_turns
+  #   给 3 → 模型尝试 WebSearch 被拒也烧轮次,fable-5 在真实问题上必挂
+  #          (opus-4-8 同参数却能过 —— 别拿单个模型的通过当验证)
+  max_turns: 10
+
+  # 研究员挂了怎么办。true = 整个市场跳过 (宁可不做);
+  # false = 让投票人在没有事实的情况下硬判 (它们大概率会低信心弃权,
+  #         但万一没弃权就是在无知上下注)。
+  skip_market_if_research_fails: true
+
+# ── 市场筛选 ──────────────────────────────────────────────
+market_filter:
+  min_volume_24h_usd: 20000
+  min_liquidity_usd: 5000
+  # 价格区间是最重要的筛子:成交量榜首常是 0.99 的已定盘市场,没有 edge
+  price_min: 0.10
+  price_max: 0.90
+  min_days_to_resolution: 1
+  max_days_to_resolution: 120
+  max_markets_per_round: 3           # 每轮最多分析几个市场 (直接决定配额消耗)
+  exclude_keywords: []               # 想屏蔽某类市场就往这填,如 ["Ethiopia"]
+
+# ── 主循环 ────────────────────────────────────────────────
+loop:
+  interval_minutes: 45
+  # 每轮成本 ≈ (voters 数 + 1) × 单次成本
+  # 当前 3 voters + 1 decider ≈ $0.52/轮 ≈ $0.7/小时 ≈ 5小时窗口 $3.5
+  # 夏用的是同一份订阅配额 —— 调低 interval 前先想清楚
+
+# ── 交易执行 (仅 dry_run=false 时生效) ─────────────────────
+execution:
+  # 私钥不放这。从环境变量 POLYVOTE_PRIVATE_KEY 读。
+  # Polymarket 代理钱包地址(如果用的话):
+  funder_address: null
+  # 1 = Email/Magic 登录的代理钱包, 2 = 浏览器钱包(MetaMask 等)
+  signature_type: 1
+  chain_id: 137                      # Polygon 主网
+  clob_host: https://clob.polymarket.com
+  order_type: GTC                    # GTC=挂单等成交, FOK=立即全成或撤
+
+data:
+  gamma_host: https://gamma-api.polymarket.com
+  db_path: ./polyvote.db

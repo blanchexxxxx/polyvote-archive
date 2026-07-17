@@ -1,0 +1,15 @@
+[Unit]
+Description=polyvote 观测台 (只读 SQLite, 不碰交易逻辑)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/polyvote
+ExecStart=%h/polyvote/.venv/bin/python -u dashboard.py --port 8920 --db %h/polyvote/polyvote.db
+Restart=always
+RestartSec=5
+StandardOutput=append:%h/polyvote/dashboard.log
+StandardError=append:%h/polyvote/dashboard.log
+
+[Install]
+WantedBy=default.target
