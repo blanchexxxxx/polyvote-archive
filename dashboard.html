@@ -211,6 +211,7 @@
   .crow.hit .st { color: var(--good); }
   .crow.miss .st { color: var(--critical); }
   .crow.warm .st { color: var(--muted); }
+  .crow.na .st { color: var(--muted); opacity: .6; }
   .crow .who { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; }
   .crow .n { text-align: right; font-variant-numeric: tabular-nums; }
   .crow .gap { text-align: right; color: var(--muted); }
@@ -346,7 +347,8 @@ const fmtGap = s => s == null ? "—"
 
 // 状态永远带文字,不靠颜色单独承载 —— 绿↔红在色盲下 ΔE 只有 4.1,
 // 也就是说红绿色盲看 hit 和 miss 是一个颜色。文字才是可读的那层。
-const ST = { hit: "✓ 命中", warm: "~ 温", miss: "✗ 未命中" };
+// na = Codex 那种拿不到读/写分项的情况,不是真的 miss
+const ST = { hit: "✓ 命中", warm: "~ 温", miss: "✗ 未命中", na: "— 无分项" };
 
 function cachePanel(cs) {
   const el = $("#cache");

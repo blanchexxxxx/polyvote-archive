@@ -68,11 +68,17 @@ def cache_stats(c: sqlite3.Connection, limit: int = 30) -> dict:
     for i, r in enumerate(rows):
         older = rows[i + 1]["ts"] if i + 1 < len(rows) else None
         r["gap_s"] = _gap_seconds(older, r["ts"]) if older else None
-        r["cls"] = (
-            "miss"
-            if r["cache_read"] == 0
-            else ("hit" if r["cache_read"] > r["cache_write"] * 2 else "warm")
-        )
+        # Codex 的 banner 只报一个 tokens used 合计,没有读/写分项。
+        # 所以读写都是 0 不代表"没命中",而是"抠不出数据"—— 单列一类 n/a,
+        # 别让它冒充 miss 拉低命中率的观感(它其实也不进分母,因为四个数都是 0)。
+        if r["cache_read"] == 0 and r["cache_write"] == 0 and r["new_tokens"] == 0:
+            r["cls"] = "na"
+        elif r["cache_read"] == 0:
+            r["cls"] = "miss"
+        elif r["cache_read"] > r["cache_write"] * 2:
+            r["cls"] = "hit"
+        else:
+            r["cls"] = "warm"
 
     denom = agg["r"] + agg["w"] + agg["n"]
     return {

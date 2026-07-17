@@ -26,9 +26,41 @@ cp deploy/pi.env.example deploy/pi.env
 |---|---|
 | 研究 → 投票 → 决策 → 风控 → dry-run 记账 | ✅ 端到端跑通，多轮实测 |
 | 结算追踪 | ✅ 代码 + 18 个单元测试全过（`tests/test_settle.py`） |
-| 观测台 | ✅ 跑在目标机 8920，systemd unit 在 `deploy/` |
+| 观测台 | ✅ systemd `polyvote-dashboard.service`，跑在目标机 8920 |
+| **bot 常驻运行** | ✅ **systemd `polyvote-bot.service` 已 enable + 运行，45 分钟一轮，dry-run** |
+| 1h prompt 缓存 | ✅ 实测生效，稳态省 65%（见下） |
+| Token 命中率仪表 | ✅ 观测台面板 + `tests/test_cache_meter.py` 13 用例全过 |
 | **实盘下单** | ⚠️ **代码写了，从没真跑过。`execute.py::_execute_live` 只做了语法和逻辑验证，没有真实成交过一单。** |
 | **有没有 edge** | ⚠️ **完全未知。零结算记录。所有轮次都是 SKIP。** |
+
+### bot 正在运行 —— 怎么看 / 怎么停
+
+```bash
+systemctl --user status polyvote-bot        # 状态
+tail -f ~/polyvote/bot.log                  # 实时日志
+systemctl --user stop polyvote-bot          # 停(临时)
+systemctl --user disable --now polyvote-bot # 停(永久,不随开机起)
+```
+
+`Linger=yes`，所以登出/重启后 bot 和观测台都会自动起来。**它会一直吃 Max 20x
+的配额窗口,直到你停它。** 目前没有夜间静默(夏那边的 keepalive 有
+quiet_start_hour,polyvote 还没加)—— 如果要加,在 `run.py` 的常驻循环里判断
+当前小时即可。
+
+### 1h 缓存实测数据（2026-07-18，fable-5，间隔 400s）
+
+```
+第 1 次(冷启)  cache_w=20,714  cache_r=17,432  等效 30,655  $0.484
+第 2 次(命中)  cache_w= 3,268  cache_r=34,864  等效 10,561  $0.151
+第 3 次(命中)  cache_w= 3,446  cache_r=34,864  等效 10,913  $0.161
+```
+
+400s > 300s(默认 5min TTL)还命中 → `ENABLE_PROMPT_CACHING_1H` 确实生效。
+**稳态省 65%。** 原始 token 几乎不变(都 41k),差别全在读/写比例 —— 所以只看
+"总 token"会误判,要看加权等效。
+
+含义:早先算的 "$24/5小时窗口" 是**冷启价**,错了。稳态下 haiku/opus/fable-投票/
+fable-决策 四份缓存各自热着,实际低得多。真数看观测台的命中率面板。
 
 **别把"跑通了"当成"能赚钱"。** 到目前为止每一轮都正确地弃权了——三家模型都认为
 主流盘定价合理，edge 够不着 8 个点的阈值。这是对的行为，但也意味着这套投票机制
