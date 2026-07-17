@@ -5,7 +5,9 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/polyvote
-ExecStart=%h/polyvote/.venv/bin/python -u dashboard.py --port 8920 --db %h/polyvote/polyvote.db
+# --host 0.0.0.0 是为了能从别的设备走 tailscale 看。观测台无鉴权,
+# 所以这台机器必须在 tailscale/VPN 里 —— 公网机器请删掉 --host。
+ExecStart=%h/polyvote/.venv/bin/python -u dashboard.py --host 0.0.0.0 --port 8920 --db %h/polyvote/polyvote.db
 Restart=always
 RestartSec=5
 StandardOutput=append:%h/polyvote/dashboard.log

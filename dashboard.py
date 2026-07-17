@@ -177,7 +177,15 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     # 撞端口很容易发生 —— 先 `ss -tln` 扫一眼再定。
     ap.add_argument("--port", type=int, default=8920)
-    ap.add_argument("--host", default="0.0.0.0")
+    # 默认只听本机。这个观测台**没有任何鉴权** —— 谁能连上谁就能看到
+    # 你的全部持仓、决策和推理链。绑 0.0.0.0 之前先确认这台机器在
+    # tailscale/VPN 里,而不是裸奔在公网上。
+    ap.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="默认 127.0.0.1(只听本机)。要从别的设备看就传 0.0.0.0 —— "
+        "但仅限这台机器在 tailscale/VPN 之类的私有网络里,因为本服务无鉴权。",
+    )
     ap.add_argument("--db", default="polyvote.db")
     args = ap.parse_args()
     DB_PATH = args.db
@@ -196,7 +204,12 @@ def main() -> None:
     import socket
 
     print(f"观测台: http://{args.host}:{args.port}  (db={DB_PATH})")
-    print(f"走 tailscale 从别的设备:  http://{socket.gethostname()}:{args.port}")
+    if args.host not in ("127.0.0.1", "localhost", "::1"):
+        print(
+            f"⚠ 绑在 {args.host} 且无鉴权 —— 谁能连上谁就能看到你的全部持仓和推理链。\n"
+            f"  确认这台机器在 tailscale/VPN 里,不是裸奔公网。"
+        )
+        print(f"  从别的设备:  http://{socket.gethostname()}:{args.port}")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
