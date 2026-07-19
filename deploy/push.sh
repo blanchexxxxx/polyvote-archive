@@ -60,3 +60,14 @@ echo "已传:"
 printf '  %s\n' "${FILES[@]}"
 echo
 ssh -i "$KEY" "$PI" "cd ~/$DEST && du -sh . && echo && ls -a | grep -E '^\.' | grep -v -E '^\.\.?$|^\.venv$' && echo '!! 上面这些点文件不该在这 —— 可能又传串了' || echo '干净 (没有意外的点文件)'"
+
+# 部署完自动重启观测台。它无状态(每个请求现读 DB/config),重启永远安全;
+# 不重启的话进程里是旧 import 的 Python 类,读到新 config.yaml 会炸 ——
+# 2026-07-19 实翻过车:Risk 加了新字段,观测台没重启,模型面板直接报
+# ConfigError。bot 故意**不**在这里重启:它可能正在轮次中间,烧着钱的
+# LLM 调用不该被部署打断 —— bot 重启永远手动挑安全窗口。
+echo
+echo "重启观测台 (无状态,安全) ..."
+ssh -i "$KEY" "$PI" "systemctl --user restart polyvote-dashboard.service" \
+  && echo "观测台已重启" \
+  || echo "!! 观测台重启失败 —— 手动: systemctl --user restart polyvote-dashboard"
