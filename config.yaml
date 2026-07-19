@@ -98,22 +98,28 @@ risk:
   max_notional_per_day_usd: 50.0
   max_position_per_market_usd: 20.0
   max_open_positions: 5
-  min_decider_confidence: 6          # 决策者置信度低于此值 → 不下单
+  min_decider_confidence: 5          # 决策者置信度下限。学习档 5;实盘拧回 6
   min_vote_agreement: 2              # 至少 N 票同向 (ABSTAIN 不计)
   max_price_for_buy: 0.90            # 不追已定盘的票
   min_price_for_buy: 0.05
 
-  # 一票的 fair_price 要偏离市价多少才算一票。0.08 = 8 个点。
-  # 调低会让 bot 频繁交易噪声;调高则几乎不动手。
-  # 参考:Polymarket 主流盘点差通常 1-2 个点,低于那个的 edge 是幻觉。
-  min_edge: 0.08
+  # ⚠ 当前是 dry-run 学习档(偏松)。102 轮全 SKIP 之后的教训:模拟单亏了
+  # 不花钱,但一单不下就零信息 —— dry-run 里过度保守是最差策略。
+  # 开实盘前把这三个值拧回严档: min_edge 0.08 / min_voter_confidence 5 /
+  # min_decider_confidence 6。
+
+  # 一票的 fair_price 要偏离市价多少才算一票。
+  # 实盘建议 0.08;学习档 0.06 —— 实测里三家常聚在 5-7 个点的 edge 上,
+  # 0.08 把这些全掐成弃权,决策者永远收不到真实票型。
+  min_edge: 0.06
 
   # 单票信心下限。低于此值的票强制弃权,不管 edge 多大。
-  # 这道闸门是实测踩出来的,别调到 4 以下:
-  #   模型对 2026 世界杯一无所知 → 老实报 fair=0.500 conf=1
-  #   市价 0.411 → edge=+0.089 > min_edge → 被推导成 YES 票
-  # 也就是"无知"被当成了"edge"。均匀先验在任何非 0.5 的盘上都像机会。
-  min_voter_confidence: 5
+  # 绝对下限是 4,再低"无知会被当成 edge":
+  #   模型对某事一无所知 → 老实报 fair=0.500 conf=1
+  #   市价 0.411 → edge 超阈值 → 被推导成 YES 票
+  # 学习档用 4(LeBron 盘三家 conf 4/4/6 被 5 拦掉两票,票型从未成形);
+  # 实盘建议拧回 5。
+  min_voter_confidence: 4
 
   # 投票人估值分歧上限。三个模型分别报 0.2/0.5/0.8 时平均值 0.5 毫无意义,
   # 这种情况必须拒单而不是照着均值下注。

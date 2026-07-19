@@ -44,10 +44,10 @@ def setup_logging(verbose: bool) -> None:
 def _position_ctx(store: Store, dry_run: bool) -> str:
     pos = store.positions(dry_run)
     if not pos:
-        return "(当前无持仓)"
+        return "(no current positions)"
     lines = [
         f"  {p['question'][:60]} — {p['side']} ${p['net_usd']:.2f} "
-        f"@ 均价 {p['avg_price']:.3f}"
+        f"@ avg price {p['avg_price']:.3f}"
         for p in pos
     ]
     return "\n".join(lines)
@@ -65,10 +65,10 @@ def _book_ctx(cfg, m: mkt.Market) -> str:
         return ""
     spread = f"{(ask - bid):.4f}" if (ask and bid) else "n/a"
     return (
-        f"\n真实盘口 (YES):\n"
-        f"  买一 = {bid if bid else 'n/a'}   卖一 = {ask if ask else 'n/a'}   "
-        f"点差 = {spread}\n"
-        f"  (你买 YES 要付卖一价,不是中间价 —— 点差要算进 edge 里)\n"
+        f"\nReal book (YES):\n"
+        f"  bid = {bid if bid else 'n/a'}   ask = {ask if ask else 'n/a'}   "
+        f"spread = {spread}\n"
+        f"  (buying YES costs the ask price, not the midpoint — include spread in edge calculation)\n"
     )
 
 

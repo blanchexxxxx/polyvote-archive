@@ -77,33 +77,33 @@ VOTE_SCHEMA: dict[str, Any] = {
     "properties": {
         "reasons_no": {
             "type": "array",
-            "description": "这个问题会结算成 NO 的理由。先想这个 —— 顺序是刻意的。",
+            "description": "Reasons this resolves NO. Think this through first — the order is deliberate.",
             "items": {"type": "string"},
         },
         "reasons_yes": {
             "type": "array",
-            "description": "这个问题会结算成 YES 的理由。",
+            "description": "Reasons this resolves YES.",
             "items": {"type": "string"},
         },
         "base_rate": {
             "type": "number",
             "minimum": 0,
             "maximum": 1,
-            "description": "这类事件的历史基准概率 —— 在看本题证据之前,同类问题多久发生一次。",
+            "description": "Historical base rate for this category of event — before examining this question's evidence, how often do similar events occur?",
         },
         "fair_price": {
             "type": "number",
             "minimum": 0,
             "maximum": 1,
-            "description": "从 base_rate 出发、按具体证据调整后,你估计的 YES 概率。",
+            "description": "Starting from base_rate and adjusted by specific evidence, your estimated probability of YES.",
         },
         "confidence": {
             "type": "integer",
             "minimum": 0,
             "maximum": 10,
-            "description": "对这个估计的信心。资讯不足就给低分 —— 它是下游是否下注的硬闸门。",
+            "description": "Confidence in this estimate. Give a low score if information is lacking — it's a hard gate on whether downstream will bet.",
         },
-        "reason": {"type": "string", "description": "一到两句,说清你为什么从 base_rate 偏到了 fair_price"},
+        "reason": {"type": "string", "description": "One or two sentences explaining why you moved from base_rate to fair_price."},
     },
     "required": ["reasons_no", "reasons_yes", "base_rate", "fair_price", "confidence", "reason"],
     "additionalProperties": False,
@@ -114,17 +114,17 @@ RESEARCH_SCHEMA: dict[str, Any] = {
     "properties": {
         "summary": {
             "type": "string",
-            "description": "3-6 句,说清这个问题当前的实际状况。",
+            "description": "3-6 sentences explaining the current actual status of this question.",
         },
         "facts": {
             "type": "array",
-            "description": "查到的具体事实。每条都要能被投票人直接采信。",
+            "description": "Specific facts found. Each must be directly credible to voters.",
             "items": {
                 "type": "object",
                 "properties": {
                     "claim": {"type": "string"},
-                    "source": {"type": "string", "description": "来源站点或出处"},
-                    "date": {"type": "string", "description": "事实发生/发布日期,不知道填 unknown"},
+                    "source": {"type": "string", "description": "source site or attribution"},
+                    "date": {"type": "string", "description": "date the fact occurred/was published; unknown if not known"},
                     # TYPE A/B 分类,抄自 valory-xyz/mech-predict 的 superforcaster_polymarket_v4。
                     # 他们的 Brier 归因显示:"X 本周上头条"这类盘靠常青标准页给出
                     # p_yes=0.99 然后结算成 NO,占了 W-1 Brier 质量的 20.9%。
@@ -132,10 +132,10 @@ RESEARCH_SCHEMA: dict[str, Any] = {
                     "within_window": {
                         "type": "boolean",
                         "description": (
-                            "TYPE A (true): 有明确日期且落在这个问题的结算窗口内,"
-                            "或直接陈述结算条件在窗口内被满足/未满足。"
-                            "TYPE B (false): 无日期、日期在窗口外、或是常青标准页"
-                            "(股票代码页、官方新闻室、分类页、搜索结果页、聚合站)。"
+                            "TYPE A (true): has an explicit date falling within this question's resolution window, "
+                            "or directly states whether the resolution condition was met/not met within the window. "
+                            "TYPE B (false): undated, dated outside the window, or a standing page (stock ticker page, "
+                            "official newsroom, category page, search results page, aggregators)."
                         ),
                     },
                 },
@@ -145,12 +145,12 @@ RESEARCH_SCHEMA: dict[str, Any] = {
         },
         "uncertainties": {
             "type": "array",
-            "description": "查不到的、或有矛盾说法的关键点。投票人需要知道自己不知道什么。",
+            "description": "Key points that couldn't be found or have contradictory accounts. Voters need to know what they don't know.",
             "items": {"type": "string"},
         },
         "searched": {
             "type": "boolean",
-            "description": "是否真的执行了搜索。false 表示以下内容全部来自训练数据。",
+            "description": "Whether a real search was performed. false means all content below comes from training data.",
         },
     },
     "required": ["summary", "facts", "uncertainties", "searched"],
@@ -290,6 +290,17 @@ DECIDER_SYSTEM = (
     "Output only the structured result."
 )
 
+# dry-run 时追加的校准段。教训:真金白银的谨慎标准放进 dry-run,102 轮全 SKIP,
+# 零信息 —— 模拟单亏了不花钱,不下单才是最贵的。实盘 prompt 保持严档不变。
+DECIDER_CALIBRATION_ADDENDUM = (
+    "\n\nCALIBRATION MODE: this desk is currently paper-trading. Simulated losses "
+    "cost nothing; an empty trade log costs everything — settlements are the only "
+    "way this desk learns whether its analysts are calibrated. When analysts show a "
+    "consistent directional edge on solid research, prefer taking a SMALL position "
+    "over skipping. Still skip garbage: stale books, contradictory research, "
+    "coin-flips with no information. Judge honestly — your calls are being graded."
+)
+
 
 @dataclass
 class Fact:
@@ -323,34 +334,34 @@ class Research:
     def as_brief(self) -> str:
         """给投票人和决策者看的简报文本。"""
         if not self.ok:
-            return "(研究失败,没有事实可依。请据此给低信心。)"
-        lines = [f"简报: {self.summary}", ""]
+            return "(Research failed, no facts available. Give low confidence accordingly.)"
+        lines = [f"Brief: {self.summary}", ""]
         if self.facts:
             a, b = self.type_a_count, len(self.facts) - self.type_a_count
-            lines.append(f"查到的事实 (窗口内 {a} 条 / 背景 {b} 条):")
+            lines.append(f"Facts found (within window: {a} / background: {b}):")
             for f in self.facts:
-                tag = "[窗口内]" if f.within_window else "[背景]  "
+                tag = "[in-window]" if f.within_window else "[background]"
                 lines.append(f"  {tag} {f.claim}  ({f.source}, {f.date})")
             if a == 0 and b > 0:
                 # 这正是 mech-predict 量出来占 W-1 Brier 质量 20.9% 的失败模式:
                 # 常青标准页 → p_yes=0.99 → 结算成 NO。明着说出来。
                 lines.append("")
                 lines.append(
-                    "⚠ 窗口内证据 0 条 —— 以上全是背景资料,没有任何来自结算窗口的证据。"
-                    "主体有多知名跟那件具体的事有没有发生无关。请退回该类事件的 base rate,"
-                    "并压低信心。"
+                    "⚠ No in-window evidence — all above is background material, nothing from the resolution window. "
+                    "How prominent the subject is has nothing to do with whether the specific event happened. "
+                    "Fall back to base rate for this category and lower your confidence."
                 )
         else:
-            lines.append("查到的事实: (无)")
+            lines.append("Facts found: (none)")
         if self.uncertainties:
             lines.append("")
-            lines.append("研究员明确表示查不到/有矛盾的点:")
+            lines.append("Researcher explicitly states could not find or contradictions:")
             lines += [f"  - {u}" for u in self.uncertainties]
         if not self.searched:
             lines.append("")
             lines.append(
-                "⚠ 研究员报告 searched=false —— 以上内容来自训练数据而非实时搜索,"
-                "可能已过时。请据此压低信心。"
+                "⚠ Researcher reports searched=false — content below is from training data, not real-time search, "
+                "may be stale. Lower your confidence accordingly."
             )
         return "\n".join(lines)
 
@@ -401,15 +412,15 @@ def _desc(m: Market, limit: int = 1500) -> str:
 def _research_prompt(m: Market) -> str:
     """研究员看到的:问题 + 规则,没有价格 (它的产出会传给致盲的投票人)。"""
     days = m.days_to_resolution
-    days_txt = f"{days:.1f} 天后结算" if days is not None else "结算时间未知"
-    return f"""问题: {m.question}
+    days_txt = f"Resolves in {days:.1f} days" if days is not None else "Resolution time unknown"
+    return f"""Question: {m.question}
 
-结算规则 (决定了什么算 YES,读仔细):
+Resolution criteria (defines what counts as YES — read carefully):
 {_desc(m)}
 
-{days_txt}。今天是 {datetime.now(timezone.utc).strftime('%Y-%m-%d')}。
+{days_txt}. Today is {datetime.now(timezone.utc).strftime('%Y-%m-%d')}.
 
-去查这个问题现在的实际状况。报事实,不要报预测,不要报赔率。"""
+Find what is actually happening with this question right now. Report facts, not forecasts, not betting odds."""
 
 
 def _blind_brief(m: Market, research: Research) -> str:
@@ -419,21 +430,21 @@ def _blind_brief(m: Market, research: Research) -> str:
     的有用信号,但不泄露方向。
     """
     days = m.days_to_resolution
-    days_txt = f"{days:.1f} 天后结算" if days is not None else "结算时间未知"
-    return f"""问题: {m.question}
+    days_txt = f"Resolves in {days:.1f} days" if days is not None else "Resolution time unknown"
+    return f"""Question: {m.question}
 
-结算规则:
+Resolution criteria:
 {_desc(m)}
 
-── 研究简报 (由助手查证,你的另外两位同事看到的是同一份) ──
+── Research brief (verified by assistant, your two colleagues see the same one) ──
 {research.as_brief()}
 
-── 背景 ──
-  {days_txt}。今天是 {datetime.now(timezone.utc).strftime('%Y-%m-%d')}。
-  该市场 24h 成交量 ${m.volume_24h:,.0f},流动性 ${m.liquidity:,.0f}
-  (成交量只说明有多少人在看这个盘,不透露方向)
+── Context ──
+  {days_txt}. Today is {datetime.now(timezone.utc).strftime('%Y-%m-%d')}.
+  24h volume: ${m.volume_24h:,.0f}, liquidity: ${m.liquidity:,.0f}
+  (volume only tells you how many people are watching; it reveals nothing about direction)
 
-请给出 YES 发生的概率。你看不到市场报价,这是刻意的 —— 独立估计才有价值。"""
+Estimate the probability that YES occurs. You cannot see the market price — this is deliberate — independent estimates are what matters."""
 
 
 def research(cfg: Config, market: Market) -> Research:
@@ -499,17 +510,17 @@ def research(cfg: Config, market: Market) -> Research:
 def _full_brief(m: Market, book_ctx: str = "") -> str:
     """决策者看到的:全部信息,含价格和盘口。"""
     days = m.days_to_resolution
-    days_txt = f"{days:.1f} 天后结算" if days is not None else "结算时间未知"
-    return f"""市场: {m.question}
+    days_txt = f"Resolves in {days:.1f} days" if days is not None else "Resolution time unknown"
+    return f"""Market: {m.question}
 
-结算规则:
+Resolution criteria:
 {_desc(m)}
 
-当前报价:
-  YES = {m.yes_price:.4f}   (市场隐含概率 {m.yes_price:.1%})
+Current quotes:
+  YES = {m.yes_price:.4f}   (implied probability {m.yes_price:.1%})
   NO  = {m.no_price:.4f}
-  24h 成交量 = ${m.volume_24h:,.0f}
-  流动性     = ${m.liquidity:,.0f}
+  24h volume = ${m.volume_24h:,.0f}
+  liquidity = ${m.liquidity:,.0f}
   {days_txt}
 {book_ctx}"""
 
@@ -672,17 +683,17 @@ def decide(
     for v in votes:
         if v.ok:
             br = (
-                f" [该类 base rate {v.base_rate:.3f} → 因本题证据调到 {v.fair_price:.3f}]"
+                f" [base rate for this category {v.base_rate:.3f} → adjusted to {v.fair_price:.3f} due to evidence]"
                 if v.base_rate is not None
                 else ""
             )
             lines.append(
-                f"  [{v.voter_id}/{v.model}] 估计 YES={v.fair_price:.3f} "
-                f"(vs 市价 {market.yes_price:.3f}, edge={v.edge:+.3f}) → {v.side} "
-                f"conf={v.confidence}/10{br}\n      理由: {v.reason}"
+                f"  [{v.voter_id}/{v.model}] estimate YES={v.fair_price:.3f} "
+                f"(vs quote {market.yes_price:.3f}, edge={v.edge:+.3f}) → {v.side} "
+                f"conf={v.confidence}/10{br}\n      reason: {v.reason}"
             )
         else:
-            lines.append(f"  [{v.voter_id}/{v.model}] (调用失败,不计票) {v.error}")
+            lines.append(f"  [{v.voter_id}/{v.model}] (call failed, vote not counted) {v.error}")
 
     r = cfg.risk
     fair_txt = (
@@ -692,46 +703,50 @@ def decide(
     )
     prompt = f"""{_full_brief(market, book_ctx)}
 
-── 研究简报 (分析师们看的就是这份,你也看同一份) ──
+── Research brief (analysts see this, you see the same) ──
 {research.as_brief()}
 
-── 分析师估值 ──
-这些分析师**没有被告知市场报价**,他们的概率估计是独立做出的。
-方向 (YES/NO/ABSTAIN) 是拿他们的估计和真实报价相比算出来的,不是他们自己说的。
+── Analyst estimates ──
+These analysts are **not told the market price**; their probability estimates are made independently.
+Direction (YES/NO/ABSTAIN) is derived by comparing their estimates to the actual quote—it is not something they said themselves.
 
 {chr(10).join(lines)}
 
-票型: YES={tally_result['yes']} NO={tally_result['no']} 弃权={tally_result['abstain']}
-      领先方={tally_result['lead']} 同向票数={tally_result['agreement']}
-      平均估计={fair_txt}  分析师之间的分歧={tally_result['fair_price_spread']:.3f}
+Vote tally: YES={tally_result['yes']} NO={tally_result['no']} abstain={tally_result['abstain']}
+           lead={tally_result['lead']} agreement={tally_result['agreement']}
+           mean estimate={fair_txt}  analyst disagreement={tally_result['fair_price_spread']:.3f}
 
-注意:分歧大 (spread 高) 意味着没人真的知道答案,此时"平均值"是假的精确,
-应当缩小仓位或直接跳过,而不是取中间数下注。
+Note: high disagreement (high spread) means no one really knows the answer. In this case, "average" is false precision—
+shrink the position or skip entirely, don't place the midpoint.
 
-── 当前持仓 ──
+── Current positions ──
 {position_ctx}
 
-── 硬约束 (代码层强制,你给的数字超了会被直接砍到上限或整单拒绝) ──
-  单笔上限      ${r.max_notional_per_trade_usd}
-  单市场仓位上限 ${r.max_position_per_market_usd}
-  买入价区间     {r.min_price_for_buy} ~ {r.max_price_for_buy}
-  低于 conf={r.min_decider_confidence} 的决策会被拒绝
-  同向票不足 {r.min_vote_agreement} 的会被拒绝
+── Hard constraints (enforced in code; numbers that exceed limits will be cut to the ceiling or rejected) ──
+  max per trade     ${r.max_notional_per_trade_usd}
+  max per market    ${r.max_position_per_market_usd}
+  buy price range   {r.min_price_for_buy} ~ {r.max_price_for_buy}
+  decisions below conf={r.min_decider_confidence} will be rejected
+  insufficient agreement (<{r.min_vote_agreement} same-direction votes) will be rejected
 
-请拍板:
-  BUY  — 买入 side 方向。size_usd 是花多少钱,limit_price 是你愿意付的最高价。
-  SELL — 平掉已有仓位 (没仓位就别选)。
-  SKIP — 不动。分歧大、edge 薄、规则含糊时的正确答案。
+Make a decision:
+  BUY  — buy the side direction. size_usd is how much to spend, limit_price is the highest price you'll pay.
+  SELL — exit existing position (don't pick this if there's no position).
+  SKIP — do nothing. The right answer when disagreement is high, edge is thin, or rules are ambiguous.
 
-size_usd 按你的信心和 edge 大小定,别默认顶格。"""
+Size size_usd by your confidence and edge size, don't default to the maximum."""
 
+    # dry-run 挂校准段(鼓励小额模拟单攒结算数据);实盘用严档原文
+    decider_system = DECIDER_SYSTEM + (
+        DECIDER_CALIBRATION_ADDENDUM if cfg.risk.dry_run else ""
+    )
     try:
         res = llm.call(
             d.engine,
             prompt,
             model=d.model,
             schema=DECISION_SCHEMA,
-            system=DECIDER_SYSTEM,
+            system=decider_system,
             effort=d.effort,
             timeout_s=ecfg.get("timeout_s"),
             binary=ecfg.get("bin"),
