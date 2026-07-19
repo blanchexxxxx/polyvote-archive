@@ -125,6 +125,12 @@ risk:
   # 这种情况必须拒单而不是照着均值下注。
   max_fair_price_spread: 0.25
 
+  # desk 的 Kelly 定仓(操盘手研究嫁接,2026-07-19)。
+  # size = bankroll × f* × kelly_fraction × 平均信心/10,再受单笔上限约束。
+  # 疑虑缩仓位,不弃权 —— 只有 edge < min_edge 才产生零。
+  paper_bankroll_usd: 100.0
+  kelly_fraction: 0.25               # ¼Kelly,全行业默认;全 Kelly 会破产
+
 # ── 研究阶段 ──────────────────────────────────────────────
 research:
   # 只有研究员能上网。没有实时信息的模型不可能赢过流动的预测市场 ——

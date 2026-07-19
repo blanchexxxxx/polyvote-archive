@@ -302,6 +302,67 @@ DECIDER_SYSTEM = (
     "Output only the structured result."
 )
 
+# ── 否决审查层 (操盘手研究 2026-07-19 的核心嫁接) ──
+#
+# 7 个能跑的开源交易 bot 的共同结论:别让 LLM 决定"要不要交易" —— 对 LLM
+# 谨慎永远是安全答案,问它就是 102 轮全 SKIP。扣扳机的是 desk.py 的算术;
+# LLM 只保留否决权,而且举证责任反转(TradingAgents 的手法:"Hold 必须被
+# 有力论证,不能当保底"):
+#   APPROVE 是默认。VETO 必须引用简报/盘口里的具体证据。
+#   "市场大概知道些什么"不带证据 = 不是否决理由。
+#
+# 保留否决权而不是纯机械的原因:St. Louis 假 edge 案(三票 NO、edge -0.79、
+# 简报把比赛结果搞反) —— 机械规则会直接开枪,当时是决策者识破了
+# "三票同源于同一份可疑简报,不是独立确认"。这个能力必须留下。
+REVIEW_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "adjusted_probability": {
+            "type": "number", "minimum": 0, "maximum": 1,
+            "description": "Your own probability of YES after weighing analysts, research quality, and book. State it even if you veto.",
+        },
+        "verdict": {"type": "string", "enum": ["APPROVE", "VETO"]},
+        "veto_code": {
+            "type": "string",
+            "enum": ["", "stale_book", "research_defect", "rule_misread", "new_information", "other"],
+            "description": "Required when verdict=VETO. Empty string when APPROVE.",
+        },
+        "size_multiplier": {
+            "type": "number", "minimum": 0.25, "maximum": 1.0,
+            "description": "Scale the desk's proposed size down if you have doubts (1.0 = take it as proposed). You may shrink but not grow.",
+        },
+        "confidence": {"type": "integer", "minimum": 0, "maximum": 10},
+        "reason": {"type": "string", "description": "APPROVE: one sentence. VETO: the specific evidence, quoted or referenced."},
+    },
+    "required": ["adjusted_probability", "verdict", "veto_code", "size_multiplier", "confidence", "reason"],
+    "additionalProperties": False,
+}
+
+REVIEWER_SYSTEM = (
+    "You are the risk reviewer on a prediction-market desk. The desk's mechanical "
+    "rule has already decided to place this trade — your job is NOT to re-decide "
+    "whether to trade. Your job is quality control: catch the specific failure "
+    "modes that arithmetic cannot see.\n\n"
+    "APPROVE is the default. The trade goes through unless you VETO, and a veto "
+    "must cite specific evidence from the research brief, the order book, or the "
+    "vote pattern. Valid veto grounds:\n"
+    "  stale_book — book shows the market already converged/resolved and the "
+    "quote is stale (e.g. bid 0.999 with no ask)\n"
+    "  research_defect — the brief is internally contradictory, misdated, or all "
+    "votes are downstream of one dubious claim (correlated, not independent "
+    "confirmation)\n"
+    "  rule_misread — analysts answered a different question than the resolution "
+    "criteria actually ask\n"
+    "  new_information — you know something concrete the brief missed\n\n"
+    "NOT valid: 'the market is probably right', 'feels risky', 'low confidence' "
+    "without a specific defect — the sizing formula already absorbed uncertainty "
+    "by shrinking the position. If your doubt is quantitative, use "
+    "size_multiplier to shrink it further instead of vetoing. "
+    "Your calls are logged and graded against settlements. "
+    "Output only the structured result."
+)
+
+
 # dry-run 时追加的校准段。教训:真金白银的谨慎标准放进 dry-run,102 轮全 SKIP,
 # 零信息 —— 模拟单亏了不花钱,不下单才是最贵的。实盘 prompt 保持严档不变。
 DECIDER_CALIBRATION_ADDENDUM = (
@@ -687,6 +748,10 @@ def tally(votes: list[Vote]) -> dict[str, Any]:
         "mean_fair_price": fair,
         # 投票人之间的分歧度。分歧大 = 没人真的知道 = 该缩小或跳过。
         "fair_price_spread": spread,
+        # 计票票的平均信心 —— desk 的 Kelly 定仓用它缩仓位(疑虑不弃权,缩仓)
+        "mean_confidence": (
+            sum(v.confidence for v in live) / len(live) if live else None
+        ),
     }
 
 
@@ -815,3 +880,107 @@ Size size_usd by your confidence and edge size, don't default to the maximum."""
         f"(${dec.cost_usd:.3f})" if dec.cost_usd else "",
     )
     return dec
+
+
+def review_proposal(
+    cfg: Config,
+    market: Market,
+    research: Research,
+    votes: list[Vote],
+    tally_result: dict[str, Any],
+    proposal: Any,  # desk.Proposal
+    book_ctx: str = "",
+) -> Decision:
+    """LLM 否决审查:desk 的算术已经决定下单,这里只做质检。
+
+    APPROVE → 按提案(可缩仓)构造 BUY Decision;VETO → SKIP + 否决代码。
+    审查失败 fail-closed 成 SKIP —— 绝不因为审查挂了就裸奔下单。
+    """
+    d = cfg.decider
+    ecfg = cfg.engine_cfg(d.engine)
+
+    lines = []
+    for v in votes:
+        if v.ok:
+            lines.append(
+                f"  [{v.voter_id}/{v.model}] p={v.fair_price:.3f} conf={v.confidence}/10 — {v.reason}"
+            )
+        else:
+            lines.append(f"  [{v.voter_id}/{v.model}] (call failed, not counted)")
+
+    prompt = f"""{_full_brief(market, book_ctx)}
+
+── Research brief ──
+{research.as_brief()}
+
+── Analyst votes (price-blind, independent) ──
+{chr(10).join(lines)}
+Tally: YES={tally_result['yes']} NO={tally_result['no']} abstain={tally_result['abstain']} · spread={tally_result['fair_price_spread']:.3f}
+
+── THE DESK'S MECHANICAL RULE HAS FIRED ──
+Proposed trade: BUY {proposal.side} for ${proposal.size_usd:.2f} at {proposal.exec_price:.3f}
+Arithmetic: {proposal.audit}
+
+Review this trade. APPROVE (default) or VETO (requires specific evidence — see your instructions). You may shrink the size via size_multiplier if you have quantitative doubts."""
+
+    try:
+        res = llm.call(
+            d.engine,
+            prompt,
+            model=d.model,
+            schema=REVIEW_SCHEMA,
+            system=REVIEWER_SYSTEM,
+            effort=d.effort,
+            timeout_s=ecfg.get("timeout_s"),
+            binary=ecfg.get("bin"),
+            tools=None,
+            max_turns=int(cfg.research.get("max_turns", 8)),
+        )
+        _record("review", "reviewer", res)
+        data = res.data
+        verdict = str(data["verdict"]).upper()
+        conf = int(data["confidence"])
+        reason = str(data["reason"])
+        if verdict == "APPROVE":
+            mult = max(0.25, min(1.0, float(data.get("size_multiplier", 1.0))))
+            dec = Decision(
+                action="BUY",
+                side=proposal.side,
+                size_usd=round(proposal.size_usd * mult, 2),
+                limit_price=proposal.exec_price,
+                confidence=conf,
+                reason=(
+                    f"APPROVED (adj_p={float(data['adjusted_probability']):.3f}, "
+                    f"size×{mult:.2f}): {reason}"
+                ),
+                model=d.model,
+                cost_usd=res.cost_usd,
+            )
+        else:
+            code = str(data.get("veto_code") or "other")
+            dec = Decision(
+                action="SKIP",
+                side=proposal.side,
+                size_usd=0.0,
+                limit_price=proposal.exec_price,
+                confidence=conf,
+                reason=f"VETO[{code}]: {reason}",
+                model=d.model,
+                cost_usd=res.cost_usd,
+            )
+        log.info(
+            "  审查 %-20s → %s %s %s",
+            d.model,
+            verdict,
+            f"${dec.size_usd:.2f}" if dec.action == "BUY" else f"[{data.get('veto_code')}]",
+            f"(${res.cost_usd:.3f})" if res.cost_usd else "",
+        )
+        return dec
+    except (llm.LLMError, KeyError, TypeError, ValueError) as e:
+        # fail-closed:审查挂了就不下。绝不裸奔。
+        log.warning("审查调用失败,按 SKIP 处理: %s", e)
+        return Decision(
+            action="SKIP", side=proposal.side, size_usd=0.0,
+            limit_price=proposal.exec_price, confidence=0,
+            reason=f"reviewer failed, fail-closed: {e}", model=d.model,
+        )

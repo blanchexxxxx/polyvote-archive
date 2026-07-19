@@ -42,6 +42,12 @@ class Risk:
     # 投票人之间估值分歧超过这个值 → 拒单。分歧大说明没人真懂,
     # 此时"平均值"是假的精确。
     max_fair_price_spread: float
+    # desk 的 Kelly 定仓参数。size = bankroll × f* × kelly_fraction × conf/10。
+    # ¼Kelly 是全行业默认(CloddsBot/Octagon 同款) —— 全 Kelly 波动大到能把
+    # 正 EV 玩破产。paper_bankroll 是 dry-run 的名义本金;实盘换成真实余额前
+    # 这个数只影响模拟仓位大小。
+    paper_bankroll_usd: float = 100.0
+    kelly_fraction: float = 0.25
 
 
 @dataclass

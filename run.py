@@ -15,7 +15,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from polyvote import brain, execute, livedata, llm, market as mkt, risk, settle
+from polyvote import brain, desk, execute, livedata, llm, market as mkt, risk, settle
 from polyvote.config import ConfigError, load
 from polyvote.store import Store
 
@@ -53,14 +53,18 @@ def _position_ctx(store: Store, dry_run: bool) -> str:
     return "\n".join(lines)
 
 
-def _book_ctx(cfg, m: mkt.Market) -> str:
-    """把真实盘口塞进 prompt。只看中间价会低估点差。"""
+def _fetch_book_numbers(cfg, m: mkt.Market) -> tuple[float | None, float | None]:
+    """取一次 YES 盘口的 (bid, ask)。desk 的算术和 prompt 的文本共用。"""
     host = cfg.execution.get("clob_host", "https://clob.polymarket.com")
     try:
         yes_book = mkt.fetch_book(host, m.token_id_for("YES"))
     except ValueError:
-        return ""
-    ask, bid = mkt.best_ask(yes_book), mkt.best_bid(yes_book)
+        return None, None
+    return mkt.best_bid(yes_book), mkt.best_ask(yes_book)
+
+
+def _book_ctx(bid: float | None, ask: float | None) -> str:
+    """把真实盘口塞进 prompt。只看中间价会低估点差。"""
     if ask is None and bid is None:
         return ""
     spread = f"{(ask - bid):.4f}" if (ask and bid) else "n/a"
@@ -186,9 +190,10 @@ def run_round(cfg, store: Store) -> None:
             store.attach_calls_to_round(rid)
             continue
 
-        # 2) 投票。投票人对价格致盲,所以 book_ctx 只给决策者,绝不能进投票 prompt。
+        # 2) 投票。投票人对价格致盲,所以 book_ctx 只给审查层,绝不能进投票 prompt。
         #    live_ctx 是世界事实(现货价),不是市场赔率 —— 可以给投票人。
-        bctx = _book_ctx(cfg, m)
+        bid, ask = _fetch_book_numbers(cfg, m)
+        bctx = _book_ctx(bid, ask)
         votes = brain.collect_votes(cfg, m, rsch, live_ctx)
         t = brain.tally(votes)
         log.info(
@@ -201,10 +206,28 @@ def run_round(cfg, store: Store) -> None:
             t["fair_price_spread"],
         )
 
-        # 3) 拍板
-        decision = brain.decide(cfg, m, rsch, votes, t, _position_ctx(store, dry), bctx)
-
+        # 3) 扣扳机的是算术,不是 LLM(操盘手研究的元发现:问 LLM"该不该交易"
+        #    它永远说不 —— 102 轮全 SKIP 就是证据)。desk 触发 → LLM 只审否决;
+        #    没触发 → 记下带数字的理由,连审查那 $0.2 都省了。
+        #    例外:该市场有持仓时仍走老 decide()(它会判断 SELL)。
         pos_here = store.position_usd(m.id, dry)
+        if pos_here > 0:
+            decision = brain.decide(
+                cfg, m, rsch, votes, t, _position_ctx(store, dry), bctx
+            )
+        else:
+            proposal, skip_why = desk.propose(t, bid, ask, cfg.risk)
+            if proposal is None:
+                log.info("  → 算术跳过: %s", skip_why)
+                decision = brain.Decision(
+                    action="SKIP", side=t.get("lead") or "YES", size_usd=0.0,
+                    limit_price=0.0, confidence=0,
+                    reason=f"desk: {skip_why}", model="desk-arithmetic",
+                )
+            else:
+                log.info("  ⚡ 触发: %s", proposal.audit)
+                decision = brain.review_proposal(cfg, m, rsch, votes, t, proposal, bctx)
+
         verdict = risk.check(
             cfg,
             m,
