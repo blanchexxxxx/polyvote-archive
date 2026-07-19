@@ -16,7 +16,7 @@ import argparse
 import json
 import sqlite3
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -259,9 +259,15 @@ def api_state() -> dict:
 
         # 滚动 5 小时窗口的配额占用 —— 这才是订阅制下的真实约束。
         # 夏用同一份配额,cc_engine 的 rate_limit_type 是 'five_hour'。
+        #
+        # 边界必须在 Python 里算、跟 ts 同格式(isoformat 带 T)再传参。
+        # 不能用 sqlite 的 datetime('now','-5h') —— 它产出空格分隔,而
+        # 'T'(0x54) > ' '(0x20),字符串比较会把边界日全天都算进窗口:
+        # 实测显示 $52.40,真实只有 $11.38,虚高 4.6 倍。
+        boundary = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
         window_usd = c.execute(
-            """SELECT COALESCE(SUM(cost_usd), 0) s FROM rounds
-               WHERE ts >= datetime('now', '-5 hours')"""
+            "SELECT COALESCE(SUM(cost_usd), 0) s FROM rounds WHERE ts >= ?",
+            (boundary,),
         ).fetchone()["s"]
 
         cache = (
