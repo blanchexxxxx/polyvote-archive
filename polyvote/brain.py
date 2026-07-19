@@ -183,6 +183,18 @@ RESEARCHER_SYSTEM = (
     "turn on recent events; searching is the entire point of your role. Look for: "
     "results, scores, standings, official announcements, dates, eliminations, "
     "who is still in contention.\n\n"
+    "=== PRIMARY SOURCES OVER PRE-DIGESTED NEWS ===\n"
+    "Search-indexed news articles are secondhand and lag reality by minutes to "
+    "hours — the market prices on primary information, so an article that merely "
+    "summarizes what happened is usually already priced in. Whenever an official "
+    "primary source exists (league/federation official site, government page, "
+    "company announcement, official schedule/standings page), WebFetch IT DIRECTLY "
+    "instead of settling for a news summary. Date every fact as precisely as you "
+    "can — 'as of when' is half the value of a fact. If everything you could find "
+    "is stale secondhand coverage, say exactly that in `uncertainties`.\n"
+    "If the prompt contains a LIVE DATA block, that number was fetched by code "
+    "from the primary source seconds ago — trust it over anything you find in "
+    "articles, and do not waste searches re-deriving it.\n\n"
     "=== THE ODDS FILTER — the one rule that must not break ===\n"
     "Do not look up betting odds, prediction-market prices, Polymarket, Kalshi, "
     "Metaculus, Manifold, PredictIt, or bookmaker lines. And if such a number turns "
@@ -409,8 +421,18 @@ def _desc(m: Market, limit: int = 1500) -> str:
     return (d[:limit] + " …(截断)") if len(d) > limit else (d or "(无)")
 
 
-def _research_prompt(m: Market) -> str:
-    """研究员看到的:问题 + 规则,没有价格 (它的产出会传给致盲的投票人)。"""
+def _live_block(live_ctx: str | None) -> str:
+    """代码直取的一手数据段。有就插,没有就是空串。
+
+    这是世界事实(现货价格等),不是市场赔率 —— 不破坏投票人的价格致盲。
+    """
+    if not live_ctx:
+        return ""
+    return f"\n── LIVE DATA (code-fetched, primary source) ──\n{live_ctx}\n"
+
+
+def _research_prompt(m: Market, live_ctx: str | None = None) -> str:
+    """研究员看到的:问题 + 规则 + 可选一手数据,没有价格。"""
     days = m.days_to_resolution
     days_txt = f"Resolves in {days:.1f} days" if days is not None else "Resolution time unknown"
     return f"""Question: {m.question}
@@ -419,11 +441,11 @@ Resolution criteria (defines what counts as YES — read carefully):
 {_desc(m)}
 
 {days_txt}. Today is {datetime.now(timezone.utc).strftime('%Y-%m-%d')}.
+{_live_block(live_ctx)}
+Find what is actually happening with this question right now. Report facts, not forecasts, not betting odds. If LIVE DATA above already answers the core numeric question, do NOT burn searches re-finding it in news articles — spend your searches on what the live data cannot tell you (context, causes, upcoming events)."""
 
-Find what is actually happening with this question right now. Report facts, not forecasts, not betting odds."""
 
-
-def _blind_brief(m: Market, research: Research) -> str:
+def _blind_brief(m: Market, research: Research, live_ctx: str | None = None) -> str:
     """投票人看到的:问题 + 规则 + 事实简报。没有任何价格,没有订单簿。
 
     成交量和流动性保留 —— 它们说明市场有多少人在看,是判断"我凭什么比市场懂"
@@ -438,7 +460,7 @@ Resolution criteria:
 
 ── Research brief (verified by assistant, your two colleagues see the same one) ──
 {research.as_brief()}
-
+{_live_block(live_ctx)}
 ── Context ──
   {days_txt}. Today is {datetime.now(timezone.utc).strftime('%Y-%m-%d')}.
   24h volume: ${m.volume_24h:,.0f}, liquidity: ${m.liquidity:,.0f}
@@ -447,7 +469,7 @@ Resolution criteria:
 Estimate the probability that YES occurs. You cannot see the market price — this is deliberate — independent estimates are what matters."""
 
 
-def research(cfg: Config, market: Market) -> Research:
+def research(cfg: Config, market: Market, live_ctx: str | None = None) -> Research:
     """查一次,三个投票人共用。只有这一步能上网。"""
     r = cfg.researcher
     ecfg = cfg.engine_cfg(r.engine)
@@ -456,7 +478,7 @@ def research(cfg: Config, market: Market) -> Research:
     try:
         res = llm.call(
             r.engine,
-            _research_prompt(market),
+            _research_prompt(market, live_ctx),
             model=r.model,
             schema=RESEARCH_SCHEMA,
             system=RESEARCHER_SYSTEM,
@@ -557,13 +579,15 @@ def derive_sides(
             v.side = "ABSTAIN"  # edge 覆盖不了点差和噪声
 
 
-def collect_votes(cfg: Config, market: Market, research: Research) -> list[Vote]:
+def collect_votes(
+    cfg: Config, market: Market, research: Research, live_ctx: str | None = None
+) -> list[Vote]:
     """串行跑完所有投票人,然后推导方向。三家看同一份简报。
 
     单个投票人挂掉记为错误票,不影响整轮 —— 但错误票的 fair_price 不能
     用市场价填充(那等于凭空造出一张"市场是对的"的票),用 NaN 标记并排除。
     """
-    prompt = _blind_brief(market, research)
+    prompt = _blind_brief(market, research, live_ctx)
     max_turns = int(cfg.research.get("max_turns", 10))
     votes: list[Vote] = []
 

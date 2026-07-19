@@ -15,7 +15,7 @@ import sys
 import time
 from datetime import datetime, timezone
 
-from polyvote import brain, execute, llm, market as mkt, risk, settle
+from polyvote import brain, execute, livedata, llm, market as mkt, risk, settle
 from polyvote.config import ConfigError, load
 from polyvote.store import Store
 
@@ -148,8 +148,18 @@ def run_round(cfg, store: Store) -> None:
             f"{m.days_to_resolution:.0f}天后结算" if m.days_to_resolution else "",
         )
 
+        # 0) 能代码直取的一手数据先取好(现货价等) —— 零滞后零 LLM 成本。
+        #    搜索引擎给的是记者嚼过的二手货,数字类事实不该让 LLM 去搜。
+        live_ctx = None
+        try:
+            live_ctx = livedata.live_context(m)
+            if live_ctx:
+                log.info("  一手数据: %s", live_ctx.splitlines()[-1].strip())
+        except Exception:  # noqa: BLE001 — 直取失败不影响流程
+            log.exception("  一手数据直取失败(不影响本轮)")
+
         # 1) 查一次,三个投票人共用
-        rsch = brain.research(cfg, m)
+        rsch = brain.research(cfg, m, live_ctx)
         if not rsch.ok and cfg.research.get("skip_market_if_research_fails", True):
             log.info("  → 跳过 (研究失败,不在没有事实的情况下让模型硬判)")
             # 必须记一条 round,否则这个市场没有冷却记录,下一轮漏斗又会
@@ -176,9 +186,10 @@ def run_round(cfg, store: Store) -> None:
             store.attach_calls_to_round(rid)
             continue
 
-        # 2) 投票。投票人对价格致盲,所以 book_ctx 只给决策者,绝不能进投票 prompt
+        # 2) 投票。投票人对价格致盲,所以 book_ctx 只给决策者,绝不能进投票 prompt。
+        #    live_ctx 是世界事实(现货价),不是市场赔率 —— 可以给投票人。
         bctx = _book_ctx(cfg, m)
-        votes = brain.collect_votes(cfg, m, rsch)
+        votes = brain.collect_votes(cfg, m, rsch, live_ctx)
         t = brain.tally(votes)
         log.info(
             "  票型: YES=%d NO=%d 弃权=%d → 领先=%s  平均估值=%s 分歧=%.3f",
