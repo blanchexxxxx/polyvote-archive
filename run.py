@@ -100,14 +100,37 @@ def run_round(cfg, store: Store) -> None:
         log.exception("结算巡检出错,不影响本轮交易")
 
     try:
-        markets = mkt.fetch_markets(cfg.data["gamma_host"])
+        markets = mkt.fetch_markets(
+            cfg.data["gamma_host"], pages=int(cfg.market_filter.get("pages", 3))
+        )
     except Exception as e:  # noqa: BLE001
         log.error("拉市场数据失败,本轮跳过: %s", e)
         return
 
-    picked = mkt.filter_markets(markets, cfg.market_filter)
+    # 五层漏斗: 静态筛 → 冷却 → 打分 → 盘口体检 → 取前 N。
+    # 前四层全是代码,零 LLM 成本 —— 配额只烧在通过体检的健康盘上。
+    base = mkt.filter_markets(markets, cfg.market_filter)
+    if not base:
+        log.info("没有市场通过静态筛选,本轮结束")
+        return
+
+    open_ids = frozenset(p["market_id"] for p in store.positions(dry))
+    cands, cooled = mkt.select_candidates(
+        base, store.last_seen_prices(), cfg.market_filter, open_ids
+    )
+    need = int(cfg.market_filter.get("max_markets_per_round", 3))
+    picked, book_drops = mkt.book_prefilter(
+        cands, cfg.market_filter, need,
+        cfg.execution.get("clob_host", "https://clob.polymarket.com"),
+    )
+    log.info(
+        "漏斗: 静态筛后 %d → 冷却掉 %d → 候选 %d → 盘口筛掉 %s → 本轮分析 %d 个",
+        len(base), cooled, len(cands),
+        ", ".join(f"{k}×{v}" for k, v in book_drops.items()) or "0",
+        len(picked),
+    )
     if not picked:
-        log.info("没有市场通过筛选,本轮结束")
+        log.info("没有市场通过盘口体检,本轮结束(不硬凑,等下一轮)")
         return
 
     spent = store.spent_today_usd(dry)

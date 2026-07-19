@@ -411,6 +411,28 @@ class Store:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def last_seen_prices(self) -> dict[str, tuple[datetime, float]]:
+        """每个市场最近一次被分析的时间和当时的价格。喂冷却逻辑。
+
+        不分 dry_run —— 分析记忆跨模式:dry-run 里刚推导过弃权的盘,
+        切实盘也没必要立刻重推一遍。
+        """
+        with self._conn() as c:
+            rows = c.execute(
+                """SELECT market_id, ts, yes_price FROM rounds
+                   WHERE id IN (SELECT MAX(id) FROM rounds GROUP BY market_id)"""
+            ).fetchall()
+        out: dict[str, tuple[datetime, float]] = {}
+        for r in rows:
+            try:
+                out[r["market_id"]] = (
+                    datetime.fromisoformat(r["ts"]),
+                    float(r["yes_price"]),
+                )
+            except (ValueError, TypeError):
+                continue
+        return out
+
     def unsettled_markets(self, dry_run: bool) -> list[dict[str, Any]]:
         """有仓位、但还没结算过的市场。"""
         with self._conn() as c:

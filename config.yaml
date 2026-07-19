@@ -144,17 +144,39 @@ research:
   #         但万一没弃权就是在无知上下注)。
   skip_market_if_research_fails: true
 
-# ── 市场筛选 ──────────────────────────────────────────────
+# ── 市场筛选 (五层漏斗) ────────────────────────────────────
+# 静态筛 → 冷却 → 打分 → 盘口体检 → 取前 N。前四层全是代码,零 LLM 成本。
+#
+# 这套是 24h 实测(98 轮全 SKIP)之后的改版。当时按成交量取前 3,71/98 轮
+# 反复烧在同两个百万级世界杯盘上 —— 成交量大 = 盯的人多 = 定价最尖,
+# 是结构性地在最没 edge 的地方找 edge。现在:掐掉巨量盘、放宽长尾、
+# 记住分析过的、分析前先体检盘口。
 market_filter:
-  min_volume_24h_usd: 20000
+  pages: 3                           # gamma 单页 100,翻 3 页看 300 个市场
+  min_volume_24h_usd: 5000           # $5 的单要不了多少流动性,放宽长尾
+  max_volume_24h_usd: 400000         # 掐掉巨量盘(定价太尖,没 edge)
   min_liquidity_usd: 5000
-  # 价格区间是最重要的筛子:成交量榜首常是 0.99 的已定盘市场,没有 edge
+  # 价格区间仍是重要筛子:0.99 的已定盘没有 edge
   price_min: 0.10
   price_max: 0.90
   min_days_to_resolution: 1
-  max_days_to_resolution: 120
-  max_markets_per_round: 3           # 每轮最多分析几个市场 (直接决定配额消耗)
-  exclude_keywords: []               # 想屏蔽某类市场就往这填,如 ["Ethiopia"]
+  max_days_to_resolution: 45         # 从 120 收紧:结算快 = 反馈快 = 更快知道行不行
+  max_markets_per_round: 3           # 每轮最多分析几个 (直接决定配额消耗)
+  exclude_keywords: []               # 硬屏蔽,如 ["Ethiopia"]
+
+  # 冷却:分析过且价格没动的盘,这么多小时内不再重复分析。
+  # 价格挪动超过 reprice_threshold 提前解锁 —— 动了说明有新闻。持仓盘永不冷却。
+  cooldown_hours: 8
+  reprice_threshold: 0.04
+
+  # 打分降权(不是屏蔽):单场对决被博彩公司定死价,24h 实测此类全部弃权
+  deprioritize_keywords: ["vs."]
+
+  # 盘口体检:分析前一个免费 HTTP 调用,筛掉成交不了的盘。
+  # 堵的是 gamma 陈旧中间价陷阱(St. Louis 盘中间价 0.815,真实 bid 0.999
+  # 无 ask —— 比赛早打完了,三个模型对着它"发现"了 -0.79 的假 edge)。
+  book_max_spread: 0.06
+  book_max_ask: 0.95
 
 # ── 主循环 ────────────────────────────────────────────────
 loop:
