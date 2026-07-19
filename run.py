@@ -152,6 +152,28 @@ def run_round(cfg, store: Store) -> None:
         rsch = brain.research(cfg, m)
         if not rsch.ok and cfg.research.get("skip_market_if_research_fails", True):
             log.info("  → 跳过 (研究失败,不在没有事实的情况下让模型硬判)")
+            # 必须记一条 round,否则这个市场没有冷却记录,下一轮漏斗又会
+            # 选中它、又失败 —— 实测 Bitcoin 盘 34 分钟内连失败两次,
+            # 每次白烧 ~$0.1 研究费。记了这条,8h 冷却就盖住它了。
+            rid = store.log_round(
+                market_id=m.id,
+                question=m.question,
+                yes_price=m.yes_price,
+                volume_24h=m.volume_24h,
+                tally=brain.tally([]),
+                decision=brain.Decision(
+                    action="SKIP", side="YES", size_usd=0.0, limit_price=0.0,
+                    confidence=0,
+                    reason=f"research failed: {(rsch.error or '')[:200]}",
+                    model=cfg.researcher.model,
+                ),
+                votes=[],
+                research=rsch,
+                allowed=False,
+                risk_notes=["研究失败,进入冷却"],
+                dry_run=dry,
+            )
+            store.attach_calls_to_round(rid)
             continue
 
         # 2) 投票。投票人对价格致盲,所以 book_ctx 只给决策者,绝不能进投票 prompt

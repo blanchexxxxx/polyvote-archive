@@ -139,11 +139,13 @@ research:
     - WebSearch
     - WebFetch
 
-  # --max-turns。踩过两次的坑:
+  # --max-turns。踩过的坑:
   #   给 1 → --json-schema 的工具调用发不出去,直接 error_max_turns
   #   给 3 → 模型尝试 WebSearch 被拒也烧轮次,fable-5 在真实问题上必挂
   #          (opus-4-8 同参数却能过 —— 别拿单个模型的通过当验证)
-  max_turns: 10
+  #   给 10 → haiku 研究员在搜索多的题材(体育赛程/加密价格)把 10 轮全烧在
+  #          WebSearch 上,没轮到吐结构化输出。一天 3 次,每次 ~$0.1 白烧。
+  max_turns: 14
 
   # 研究员挂了怎么办。true = 整个市场跳过 (宁可不做);
   # false = 让投票人在没有事实的情况下硬判 (它们大概率会低信心弃权,
