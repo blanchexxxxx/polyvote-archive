@@ -21,11 +21,17 @@ _TIMEOUT = 20
 
 
 def _fetch_market_state(gamma_host: str, market_id: str) -> dict[str, Any] | None:
-    """按 conditionId 查单个市场的当前状态。"""
+    """按 conditionId 查单个市场的当前状态。
+
+    ⚠ 必须显式 closed=true。Gamma 的 /markets 默认只返回**未关闭**的市场,
+    而结算的前提就是市场已关闭 —— 不带这个参数,所有已解决的盘都查回空,
+    _winning_side 拿到 None,永远不结算(实测:一晚上 7 笔持仓 0 结算就是这个)。
+    先查 closed=true 拿已结算的;查不到再退回默认(市场还开着,本就不该结算)。
+    """
     try:
         resp = requests.get(
             f"{gamma_host.rstrip('/')}/markets",
-            params={"condition_ids": market_id},
+            params={"condition_ids": market_id, "closed": "true"},
             timeout=_TIMEOUT,
         )
         resp.raise_for_status()

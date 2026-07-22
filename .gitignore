@@ -2,9 +2,20 @@
 *.db
 *.db-journal
 *.db-wal
+*.db-shm
 
 # 前端写的模型覆盖 —— 运行时状态,不是代码
 overrides.json
+fast_state.json
+fast_state.json.tmp
+fast_state_*.json
+fast_state_*.json.tmp
+fast_decisions.jsonl
+fast_decisions_v*.jsonl
+fast_reviews.json
+fast_reviews_v*.json
+fast_portfolio_incident.json
+fast_replay_report.json
 
 # 日志
 *.log

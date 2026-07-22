@@ -1,0 +1,19 @@
+[Unit]
+Description=polyvote fast-market real-feed shadow engine
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/polyvote
+ExecStart=%h/polyvote/.venv/bin/python -u fastmulti.py --portfolio %h/polyvote/fast_portfolio.yaml
+Restart=always
+RestartSec=2
+StandardOutput=append:%h/polyvote/fastbot.log
+StandardError=append:%h/polyvote/fastbot.log
+CPUWeight=1000
+IOWeight=500
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

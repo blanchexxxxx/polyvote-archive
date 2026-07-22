@@ -261,7 +261,7 @@
     <span class="brand">POLYVOTE <span class="dim">× POLYMARKET</span></span>
     <span class="pill" id="mode">…</span>
     <span class="pill" id="agents">…</span>
-    <span class="clock"><span class="dot" id="live"></span> <span id="clock">--:--:--</span> UTC</span>
+    <span class="clock"><span class="dot" id="live"></span> <span id="clock">--:--:--</span> 本地</span>
   </div>
 
   <div class="tiles" id="tiles"></div>
@@ -297,7 +297,15 @@
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const money = n => (n >= 0 ? "+$" : "-$") + Math.abs(n).toFixed(2);
-const hhmm = ts => (ts || "").slice(5, 16).replace("T", " ");
+// 库里的 ts 是 UTC。渲染成浏览器本地时区 —— 之前直接切字符串显示 UTC,
+// 用户在 JST 看到"最新轮次是凌晨4点"以为 bot 停了(其实是 9 小时时差)。
+const hhmm = ts => {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (isNaN(d)) return String(ts).slice(5, 16).replace("T", " ");
+  const p = n => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
 
 // 最新一轮默认展开 —— 打开观测台最想看的就是"刚才那轮它想干嘛",
 // 不该还要先点一下。用户手动折叠后 seeded 保持 true,不会被下次轮询强行掰开。
@@ -665,7 +673,7 @@ async function tick() {
   } catch (e) {
     $("#live").style.background = "var(--critical)";
   }
-  $("#clock").textContent = new Date().toISOString().slice(11, 19);
+  $("#clock").textContent = new Date().toLocaleTimeString("en-GB");
 }
 tick();
 setInterval(tick, 5000);

@@ -1,0 +1,17 @@
+[Unit]
+Description=polyvote fast-market local dashboard
+After=network-online.target polyvote-fast.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/polyvote
+ExecStart=%h/polyvote/.venv/bin/python -u fastdash_server.py --host 127.0.0.1 --port 8920 --state-dir %h/polyvote
+Restart=always
+RestartSec=3
+StandardOutput=append:%h/polyvote/fast-dashboard.log
+StandardError=append:%h/polyvote/fast-dashboard.log
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

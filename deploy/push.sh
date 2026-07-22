@@ -28,11 +28,15 @@ fi
 # 白名单漏一个只是少传个文件。
 FILES=(
   config.yaml
+  fast_config.yaml
   requirements.txt
   README.md
   run.py
+  fastbot.py
+  fastdash_server.py
   dashboard.py
   dashboard.html
+  fast_dashboard.html
   polyvote
   deploy
   tests

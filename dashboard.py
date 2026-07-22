@@ -27,6 +27,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 DB_PATH = "polyvote.db"
 HTML_PATH = Path(__file__).parent / "dashboard.html"
+FAST_HTML_PATH = Path(__file__).parent / "fast_dashboard.html"
+FAST_STATE_PATH = Path(__file__).parent / "fast_state.json"
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 OVERRIDES_PATH = Path(__file__).parent / "overrides.json"
 
@@ -309,6 +311,28 @@ def api_state() -> dict:
         c.close()
 
 
+def api_fast_state() -> dict:
+    """Latest atomic snapshot written by fastbot.py."""
+    try:
+        return json.loads(FAST_STATE_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {
+            "ready": False,
+            "mode": "SHADOW",
+            "reason": "fastbot has not written a state snapshot yet",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "logs": [],
+        }
+    except (json.JSONDecodeError, OSError) as e:
+        return {
+            "ready": False,
+            "mode": "SHADOW",
+            "reason": f"fast state unreadable: {type(e).__name__}: {e}",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "logs": [],
+        }
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):  # 别把 access log 刷屏
         pass
@@ -332,11 +356,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, api_state())
             except Exception as e:  # noqa: BLE001
                 self._json(200, {"ready": False, "reason": f"{type(e).__name__}: {e}"})
-        elif path in ("/", "/index.html"):
+        elif path == "/api/fast/state":
+            self._json(200, api_fast_state())
+        elif path in ("/", "/index.html", "/fast", "/fast/", "/fast/index.html"):
             try:
-                self._send(200, HTML_PATH.read_bytes(), "text/html; charset=utf-8")
+                self._send(200, FAST_HTML_PATH.read_bytes(), "text/html; charset=utf-8")
             except FileNotFoundError:
-                self._send(404, b"dashboard.html not found", "text/plain")
+                self._send(404, b"fast_dashboard.html not found", "text/plain")
+        elif path in ("/slow", "/slow/"):
+            self._send(410, b"slow market dashboard retired", "text/plain; charset=utf-8")
         else:
             self._send(404, b"404", "text/plain")
 
@@ -361,7 +389,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    global DB_PATH
+    global DB_PATH, FAST_STATE_PATH
     ap = argparse.ArgumentParser()
     # 撞端口很容易发生 —— 先 `ss -tln` 扫一眼再定。
     ap.add_argument("--port", type=int, default=8920)
@@ -375,8 +403,10 @@ def main() -> None:
         "但仅限这台机器在 tailscale/VPN 之类的私有网络里,因为本服务无鉴权。",
     )
     ap.add_argument("--db", default="polyvote.db")
+    ap.add_argument("--fast-state", default="fast_state.json")
     args = ap.parse_args()
     DB_PATH = args.db
+    FAST_STATE_PATH = Path(args.fast_state)
 
     try:
         srv = ThreadingHTTPServer((args.host, args.port), Handler)

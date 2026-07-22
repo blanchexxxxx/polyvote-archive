@@ -118,10 +118,15 @@ def run_round(cfg, store: Store) -> None:
         log.info("没有市场通过静态筛选,本轮结束")
         return
 
-    open_ids = frozenset(p["market_id"] for p in store.positions(dry))
-    cands, cooled = mkt.select_candidates(
-        base, store.last_seen_prices(), cfg.market_filter, open_ids
-    )
+    if cfg.market_filter.get("_only_id"):
+        # --market 是操作员显式点名,冷却/打分不该拦它 —— 那是给自动漏斗
+        # 省钱的,不是给手动指令上锁的。盘口体检保留(安全检查不豁免)。
+        cands, cooled = base, 0
+    else:
+        open_ids = frozenset(p["market_id"] for p in store.positions(dry))
+        cands, cooled = mkt.select_candidates(
+            base, store.last_seen_prices(), cfg.market_filter, open_ids
+        )
     need = int(cfg.market_filter.get("max_markets_per_round", 3))
     picked, book_drops = mkt.book_prefilter(
         cands, cfg.market_filter, need,

@@ -1,4 +1,6 @@
 PyYAML>=6.0
 requests>=2.31
+aiohttp>=3.10
 # 实盘才需要,dry-run 不装也能跑:
 py-clob-client>=0.34.6
+py-clob-client-v2>=1.1.0

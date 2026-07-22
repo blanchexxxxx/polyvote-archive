@@ -1,0 +1,64 @@
+# V5 is a four-asset shadow portfolio.  Each bot has its own crash-safe ledger
+# so results remain attributable, while the dashboard reports one $30 portfolio.
+schema: fast-portfolio-v1
+total_capital_usd: 30.0
+max_daily_loss_usd: 6.0
+max_open_positions: 4
+latch_on_daily_loss: true
+replay_report: fast_replay_report.json
+base_config: fast_config.yaml
+
+# Challenger observations never reserve the $30 champion bankroll. Each uses a
+# normalized $5 hypothetical FAK so minimum-size, depth, fees and slippage remain
+# realistic, while promotion requires new officially settled holdout data.
+observer:
+  enabled: true
+  min_selected_probability: 0.55
+  max_spread: 0.05
+  virtual_order_usd: 5.0
+  ledger: fast_observer_{asset}.db
+
+bots:
+  - asset: BTC
+    allocation_usd: 10.5
+    chainlink_symbol: btc/usd
+    binance_symbol: btcusdt
+    risk:
+      max_order_usd: 4.25
+      max_window_usd: 4.25
+      max_daily_loss_usd: 3.5
+      max_orders_per_window: 1
+      minimum_cash_reserve_usd: 1.0
+
+  - asset: ETH
+    allocation_usd: 7.5
+    chainlink_symbol: eth/usd
+    binance_symbol: ethusdt
+    risk:
+      max_order_usd: 3.75
+      max_window_usd: 3.75
+      max_daily_loss_usd: 2.5
+      max_orders_per_window: 1
+      minimum_cash_reserve_usd: 0.75
+
+  - asset: SOL
+    allocation_usd: 6.0
+    chainlink_symbol: sol/usd
+    binance_symbol: solusdt
+    risk:
+      max_order_usd: 3.5
+      max_window_usd: 3.5
+      max_daily_loss_usd: 2.0
+      max_orders_per_window: 1
+      minimum_cash_reserve_usd: 0.5
+
+  - asset: XRP
+    allocation_usd: 6.0
+    chainlink_symbol: xrp/usd
+    binance_symbol: xrpusdt
+    risk:
+      max_order_usd: 3.5
+      max_window_usd: 3.5
+      max_daily_loss_usd: 2.0
+      max_orders_per_window: 1
+      minimum_cash_reserve_usd: 0.5
