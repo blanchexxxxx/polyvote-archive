@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from fastchallenger import CashChallenger
+from fastchallenger import CashChallenger, _poll_delay
 from polyvote.fastobserver import FastObserverLedger
 
 
@@ -141,6 +141,11 @@ class CashChallengerTests(unittest.TestCase):
         self.assertEqual(second["settled"], 1)
         self.assertNotIn(source["observation_id"], challenger.pending["BTC"])
         self.assertEqual(challenger._source_rows(), [])
+
+    def test_halted_polling_backs_off_without_slowing_collection(self):
+        self.assertEqual(_poll_delay(2.0, "COLLECTING"), 2.0)
+        self.assertEqual(_poll_delay(2.0, "HALTED"), 10.0)
+        self.assertEqual(_poll_delay(15.0, "HALTED"), 15.0)
 
 
 if __name__ == "__main__":

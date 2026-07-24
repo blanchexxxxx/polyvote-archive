@@ -27,6 +27,7 @@ from polyvote.faststate import write_state
 
 
 log = logging.getLogger("polyvote.fastchallenger")
+HALTED_POLL_SECONDS = 10.0
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,18 @@ class AssetSpec:
 
 def _timestamp(value: str) -> float:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+
+
+def _poll_delay(base_seconds: float, status: str) -> float:
+    """Back off disk-heavy bookkeeping after the challenger is latched.
+
+    The incremental reader retains its rowid cursor, so a slower halted cycle
+    still consumes every observer record while avoiding repeated full account
+    summaries and state rewrites for a book that can no longer place fills.
+    """
+    if status == "HALTED":
+        return max(base_seconds, HALTED_POLL_SECONDS)
+    return base_seconds
 
 
 class CashChallenger:
@@ -470,11 +483,13 @@ def main() -> None:
         challenger.frozen_at_utc,
     )
     while not stopping:
+        delay = interval
         try:
-            challenger.run_once()
+            state = challenger.run_once()
+            delay = _poll_delay(interval, str(state.get("status") or ""))
         except Exception:  # noqa: BLE001
             log.exception("challenger cycle failed closed")
-        time.sleep(interval)
+        time.sleep(delay)
 
 
 if __name__ == "__main__":

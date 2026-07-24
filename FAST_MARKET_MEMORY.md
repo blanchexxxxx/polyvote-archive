@@ -1,6 +1,6 @@
 # Fast Market 工作记忆
 
-最后更新：2026-07-25 00:26 JST
+最后更新：2026-07-25 08:26 JST
 
 这份文件是当前快市场系统的唯一快速交接入口。旧 `HANDOFF.md` 主要描述已退休的慢市场，而且存在编码损坏；继续工作时先读本文件。
 
@@ -13,6 +13,9 @@
 - 独立 observer 使用归一化 `$5` 假设订单持续收集样本，不占用也不扣减冠军账本；它是研究统计器，不是严格资金模拟账户。
 - observer 的早期正收益已被大样本证伪：从 217 笔时的 `+$27.69961` 变成约 2239 笔时的 `-$341.90`。高胜率没有转化为正期望。
 - 独立 `$30` 有限现金实验 `favorite-price-holdout-v1` 已于 `2026-07-24T15:12:32Z` 冻结并启动。它只跟随该时间之后的 observer 到达盘口记录，额外规则只有 `intended ask >= 0.60`；这是待验证的事后假设，不是策略升级。
+- `favorite-price-holdout-v1` 在 6 笔官方结算后净亏 `$6.512921`，已触发自身 `challenger_portfolio_daily_loss_gate` 并永久 `HALTED`；不得解除或重置。它未达到 500 笔/336 小时门槛。
+- 2026-07-25 的独立 warm probe 显示 VPS→CLOB IPv4/IPv6 P95 约 `80.61/81.28ms`；同轮服务内可控路径 P95 仍约 `297–300ms`，未达 `<100ms`。
+- 同轮短窗口 `vmstat` 的 CPU steal 多次处于约 `35–72%`。这还不是连续 7 天证据，不足以建议升级机器。
 
 ## 运行位置与访问
 
@@ -36,20 +39,21 @@ journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 
 ## 当前运行快照
 
-快照时间：2026-07-24 15:25 UTC
+快照时间：2026-07-24 23:26 UTC
 
 - API `ready: true`
 - 资产执行引擎：4/4 在线（BTC、ETH、SOL、XRP）
 - 逻辑信号通道：16（每资产 4 条）
-- observer fills / settled：约 `2241 / 2239`
-- observer normalized P&L：约 `-$341.90`
-- observer accuracy：约 `62.44%`
+- observer fills / settled：约 `2540 / 2540`
+- observer normalized P&L：约 `-$436.37`
+- observer accuracy：约 `61.89%`
 - champion equity：`$7.790189`
 - champion halt：`portfolio_incident_latched`
 - finite-cash challenger：`favorite-price-holdout-v1`
 - challenger 初始资金：`$30`
-- challenger 当时 fills / settled：`1 / 0`
-- challenger 当时标记权益：约 `$29.95`
+- challenger fills / settled：`6 / 6`
+- challenger equity：`$23.487079`
+- challenger halt：`challenger_portfolio_daily_loss_gate`
 
 这些统计会继续变化。下次以 `/api/fast/state` 的实时值为准。
 
@@ -111,6 +115,7 @@ journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 - 本地全套 fast 测试中 29 项通过，2 个测试模块因本机 bundled Python 缺少 `aiohttp` / `PyYAML` 无法导入；相关代码未失败，VPS 完整 venv 可正常启动。
 - 远端 dashboard API 已验证返回 `execution_engine_count=4`、`strategy_lane_count=16`。
 - 浏览器控制台无 warning/error。
+- 2026-07-25 将已锁定 challenger 的轮询从 2 秒退避到 10 秒；COLLECTING 仍为 2 秒。稳态 30 秒采样中 challenger 单核 CPU 约从 `7.45%` 降至 `3.13%`，写入速率约降 `70.7%`；rowid 增量读取仍会补齐全部 observer 记录。
 
 ## 重要口径
 
@@ -119,6 +124,7 @@ journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 - `ARRIVAL AVG` 是历史累计信号到模拟到达盘口延迟。
 - `BEST ACK FLOOR` 是当前四引擎中最好的估算值，没有真实订单 ACK 证明。
 - `RISK HALT` 仅表示冠军有限资金账本停止；行情采集和 observer 仍继续。
+- challenger 重启会从进程内 rowid 游标 0 做一次幂等历史核对，产生短时 CPU/写入峰值；评价退避效果必须排除这个一次性回放窗口。
 
 ## 下一步优先级
 
