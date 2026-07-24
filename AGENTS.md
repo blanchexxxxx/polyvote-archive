@@ -6,7 +6,7 @@ Local workstation override (2026-07-24): use `C:\Users\<user>\.ssh\<ssh-key>.pem
 
 # Fast Market 工作记忆
 
-最后更新：2026-07-22 20:02 JST
+最后更新：2026-07-25 00:26 JST
 
 这份文件是当前快市场系统的唯一快速交接入口。旧 `HANDOFF.md` 主要描述已退休的慢市场，而且存在编码损坏；继续工作时先读本文件。
 
@@ -17,7 +17,8 @@ Local workstation override (2026-07-24): use `C:\Users\<user>\.ssh\<ssh-key>.pem
 - 慢市场已退休，不再开发或展示。
 - 原严格资金冠军账本从 `$30.00` 亏至 `$7.790189`，已被 `portfolio_incident_latched` 永久风控锁定，不再产生订单。
 - 独立 observer 使用归一化 `$5` 假设订单持续收集样本，不占用也不扣减冠军账本；它是研究统计器，不是严格资金模拟账户。
-- 如果后续需要“每笔当真、余额耗尽就停止”的实验，应新建独立 `$30` 有限现金模拟账本，不能把 observer P&L 当成账户权益。
+- observer 的早期正收益已被大样本证伪：从 217 笔时的 `+$27.69961` 变成约 2239 笔时的 `-$341.90`。高胜率没有转化为正期望。
+- 独立 `$30` 有限现金实验 `favorite-price-holdout-v1` 已于 `2026-07-24T15:12:32Z` 冻结并启动。它只跟随该时间之后的 observer 到达盘口记录，额外规则只有 `intended ask >= 0.60`；这是待验证的事后假设，不是策略升级。
 
 ## 运行位置与访问
 
@@ -33,22 +34,28 @@ Local workstation override (2026-07-24): use `C:\Users\<user>\.ssh\<ssh-key>.pem
 
 ```bash
 systemctl --user status polyvote-fast.service
+systemctl --user status polyvote-fast-challenger.service
 systemctl --user status polyvote-fast-dashboard.service
 journalctl --user -u polyvote-fast.service -n 100 --no-pager
+journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 ```
 
 ## 当前运行快照
 
-快照时间：2026-07-22 11:02 UTC
+快照时间：2026-07-24 15:25 UTC
 
 - API `ready: true`
 - 资产执行引擎：4/4 在线（BTC、ETH、SOL、XRP）
 - 逻辑信号通道：16（每资产 4 条）
-- observer fills / settled：`218 / 217`
-- observer normalized P&L：`+$27.69961`
-- observer accuracy：`64.977%`
+- observer fills / settled：约 `2241 / 2239`
+- observer normalized P&L：约 `-$341.90`
+- observer accuracy：约 `62.44%`
 - champion equity：`$7.790189`
 - champion halt：`portfolio_incident_latched`
+- finite-cash challenger：`favorite-price-holdout-v1`
+- challenger 初始资金：`$30`
+- challenger 当时 fills / settled：`1 / 0`
+- challenger 当时标记权益：约 `$29.95`
 
 这些统计会继续变化。下次以 `/api/fast/state` 的实时值为准。
 
@@ -92,6 +99,8 @@ journalctl --user -u polyvote-fast.service -n 100 --no-pager
 - `fastmulti.py`：四资产监督器与组合风控
 - `fastbot.py`：行情、盘口、策略、模拟执行与结算主循环
 - `fast_portfolio.yaml`：四资产 `$30` 配置和 observer 参数
+- `fastchallenger.py`：读取 observer 到达盘口结果的独立有限现金 follower
+- `fast_challenger.yaml`：冻结时间、单一实验变量、四资产资金与推广门槛
 - `polyvote/fastobserver.py`：零资金独立观察账本
 - `polyvote/fastreview.py`：小时/日/周复盘
 - `fastdash_server.py`：组合聚合、16 条逻辑通道与只读 API
@@ -101,7 +110,8 @@ journalctl --user -u polyvote-fast.service -n 100 --no-pager
 
 ## 已验证测试
 
-- `tests/test_fastdash_server.py`：2/2 通过
+- 本机 Fast 测试：35 项通过
+- VPS challenger/dashboard/ledger/portfolio/observer 子集：14 项通过
 - `tests/validate_fast_dashboard.js`：通过
 - `fastdash_server.py`：`py_compile` 通过
 - 本地全套 fast 测试中 29 项通过，2 个测试模块因本机 bundled Python 缺少 `aiohttp` / `PyYAML` 无法导入；相关代码未失败，VPS 完整 venv 可正常启动。
@@ -118,11 +128,11 @@ journalctl --user -u polyvote-fast.service -n 100 --no-pager
 
 ## 下一步优先级
 
-1. 建立真正有限现金的 `$30` challenger 账本：扣现金、锁仓、收费、余额不足拒单、亏损触线停机。
-2. 把四条策略通道分别建立独立账本；在此之前不要把 16 lanes 描述成 16 个已交易 bot。
-3. 先修延迟：当前历史 arrival 平均仍为数百毫秒；拆分 HTTP、event-loop、VPS 路由和模拟执行耗时。
-4. 若接入 CVD/清算，使用一个共享 Binance Futures collector，再广播给四资产引擎；不要每个策略重复开连接。
-5. observer 推广门槛保持至少 500 笔官方结算、336 小时运行和冻结 holdout；不得根据短期胜率自动改实盘代码。
+1. 保持 `favorite-price-holdout-v1` 参数冻结，收集至少 500 笔官方结算和 336 小时运行；不得因中途盈亏改规则或重置账本。
+2. 把概率校准误差、价格区间和方向差异作为下一批并行 challenger 假设，不得回头过滤本次 holdout。
+3. 把四条策略通道分别建立独立账本；在此之前不要把 16 lanes 描述成 16 个已交易 bot。
+4. 继续拆分延迟：HTTP、event-loop、VPS 路由和模拟执行耗时；但已证实低延迟样本同样亏损，不能把延迟当作唯一根因。
+5. 若接入 CVD/清算，使用一个共享 Binance Futures collector，再广播给四资产引擎；不要每个策略重复开连接。
 
 ## 安全边界
 

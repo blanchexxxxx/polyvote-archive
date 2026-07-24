@@ -9,6 +9,7 @@ param(
 
 $ErrorActionPreference = "Continue"
 $sshExe = (Get-Command ssh -ErrorAction Stop).Source
+$sshAttemptLog = "$LogPath.ssh"
 
 function Write-TunnelLog {
     param([string]$Message)
@@ -33,19 +34,39 @@ while ($true) {
 
     Write-TunnelLog "opening 127.0.0.1:$LocalPort -> $RemoteHost`:$RemotePort"
 
-    & $sshExe `
-        -N `
-        -L "127.0.0.1:${LocalPort}:127.0.0.1:${RemotePort}" `
-        -i $KeyPath `
-        -o BatchMode=yes `
-        -o ConnectTimeout=10 `
-        -o ExitOnForwardFailure=yes `
-        -o ServerAliveInterval=15 `
-        -o ServerAliveCountMax=3 `
-        -o TCPKeepAlive=yes `
-        -o StrictHostKeyChecking=accept-new `
-        "${RemoteUser}@${RemoteHost}" 2>> $LogPath
+    try {
+        Remove-Item -LiteralPath $sshAttemptLog -Force -ErrorAction SilentlyContinue
+        $arguments = @(
+            "-N",
+            "-L", "127.0.0.1:${LocalPort}:127.0.0.1:${RemotePort}",
+            "-i", $KeyPath,
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=10",
+            "-o", "ExitOnForwardFailure=yes",
+            "-o", "ServerAliveInterval=15",
+            "-o", "ServerAliveCountMax=3",
+            "-o", "TCPKeepAlive=yes",
+            "-o", "StrictHostKeyChecking=accept-new",
+            "${RemoteUser}@${RemoteHost}"
+        )
+        $process = Start-Process `
+            -FilePath $sshExe `
+            -ArgumentList $arguments `
+            -WindowStyle Hidden `
+            -Wait `
+            -PassThru `
+            -RedirectStandardError $sshAttemptLog
+        if (Test-Path -LiteralPath $sshAttemptLog) {
+            Get-Content -LiteralPath $sshAttemptLog -ErrorAction SilentlyContinue |
+                ForEach-Object { Write-TunnelLog "ssh: $_" }
+        }
+        $exitCode = $process.ExitCode
+    }
+    catch {
+        Write-TunnelLog "failed to start ssh: $($_.Exception.Message)"
+        $exitCode = -1
+    }
 
-    Write-TunnelLog "ssh exited with code $LASTEXITCODE; retrying in 3 seconds"
+    Write-TunnelLog "ssh exited with code $exitCode; retrying in 3 seconds"
     Start-Sleep -Seconds 3
 }

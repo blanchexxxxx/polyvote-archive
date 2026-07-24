@@ -1,0 +1,17 @@
+[Unit]
+Description=polyvote finite-cash fast-market holdout challenger
+After=network-online.target polyvote-fast.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/polyvote
+ExecStart=%h/polyvote/.venv/bin/python -u fastchallenger.py --config %h/polyvote/fast_challenger.yaml
+Restart=always
+RestartSec=3
+StandardOutput=append:%h/polyvote/fast-challenger.log
+StandardError=append:%h/polyvote/fast-challenger.log
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

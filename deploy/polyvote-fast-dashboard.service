@@ -1,6 +1,6 @@
 [Unit]
 Description=polyvote fast-market local dashboard
-After=network-online.target polyvote-fast.service
+After=network-online.target polyvote-fast.service polyvote-fast-challenger.service
 
 [Service]
 Type=simple

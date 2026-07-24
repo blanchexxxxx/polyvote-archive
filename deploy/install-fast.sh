@@ -25,12 +25,16 @@ python3 -m venv .venv
 
 mkdir -p "$HOME/.config/systemd/user"
 cp deploy/polyvote-fast.service "$HOME/.config/systemd/user/"
+cp deploy/polyvote-fast-challenger.service "$HOME/.config/systemd/user/"
 cp deploy/polyvote-fast-dashboard.service "$HOME/.config/systemd/user/"
 sudo loginctl enable-linger "$USER"
 systemctl --user daemon-reload
-systemctl --user enable --now polyvote-fast.service polyvote-fast-dashboard.service
+systemctl --user enable --now \
+  polyvote-fast.service \
+  polyvote-fast-challenger.service \
+  polyvote-fast-dashboard.service
 
-echo "Fast shadow engine and dashboard are running."
-echo "Check: systemctl --user status polyvote-fast polyvote-fast-dashboard"
+echo "Fast shadow engine, finite-cash challenger and dashboard are running."
+echo "Check: systemctl --user status polyvote-fast polyvote-fast-challenger polyvote-fast-dashboard"
 echo "Tunnel: ssh -L 8920:127.0.0.1:8920 <server>"
 echo "Open: http://127.0.0.1:8920/"

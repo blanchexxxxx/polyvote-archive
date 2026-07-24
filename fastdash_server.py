@@ -35,6 +35,9 @@ def read_state() -> dict[str, Any]:
             replay_path = STATE_DIR / "fast_replay_report.json"
             if replay_path.exists():
                 result["replay"] = _read_one(replay_path)
+            challenger_path = STATE_DIR / "fast_challenger_state.json"
+            if challenger_path.exists():
+                result["challenger"] = _read_one(challenger_path)
             return result
     return _read_one(STATE_PATH)
 
@@ -439,6 +442,13 @@ class Handler(BaseHTTPRequestHandler):
                         "candidates", "fills", "rejects", "open_observations",
                         "settled", "wins", "accuracy", "pnl_usd",
                         "average_latency_ms", "promotion_gate",
+                    )
+                },
+                "challenger": {
+                    key: (state.get("challenger") or {}).get(key)
+                    for key in (
+                        "experiment_id", "status", "equity_usd", "pnl_usd",
+                        "fills", "settled", "wins", "roi", "promotion_gate",
                     )
                 },
             })

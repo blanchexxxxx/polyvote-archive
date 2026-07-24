@@ -29,10 +29,15 @@ fi
 FILES=(
   config.yaml
   fast_config.yaml
+  fast_portfolio.yaml
+  fast_challenger.yaml
+  requirements-fast.txt
   requirements.txt
   README.md
   run.py
   fastbot.py
+  fastmulti.py
+  fastchallenger.py
   fastdash_server.py
   dashboard.py
   dashboard.html
@@ -71,7 +76,7 @@ ssh -i "$KEY" "$PI" "cd ~/$DEST && du -sh . && echo && ls -a | grep -E '^\.' | g
 # ConfigError。bot 故意**不**在这里重启:它可能正在轮次中间,烧着钱的
 # LLM 调用不该被部署打断 —— bot 重启永远手动挑安全窗口。
 echo
-echo "重启观测台 (无状态,安全) ..."
-ssh -i "$KEY" "$PI" "systemctl --user restart polyvote-dashboard.service" \
+echo "重启 Fast 观测台 (无状态,安全) ..."
+ssh -i "$KEY" "$PI" "systemctl --user restart polyvote-fast-dashboard.service" \
   && echo "观测台已重启" \
-  || echo "!! 观测台重启失败 —— 手动: systemctl --user restart polyvote-dashboard"
+  || echo "!! 观测台重启失败 —— 手动: systemctl --user restart polyvote-fast-dashboard"
