@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -20,6 +21,11 @@ from urllib.parse import urlparse
 HTML_PATH = Path(__file__).parent / "fast_dashboard.html"
 STATE_PATH = Path(__file__).parent / "fast_state.json"
 STATE_DIR: Path | None = None
+STATE_CACHE_SECONDS = 2.0
+_STATE_CACHE_LOCK = threading.Lock()
+_STATE_CACHE_AT = 0.0
+_STATE_CACHE_VALUE: dict[str, Any] | None = None
+_STATE_CACHE_BODY: bytes | None = None
 
 
 def read_state() -> dict[str, Any]:
@@ -40,6 +46,41 @@ def read_state() -> dict[str, Any]:
                 result["challenger"] = _read_one(challenger_path)
             return result
     return _read_one(STATE_PATH)
+
+
+def reset_state_cache() -> None:
+    """Clear the process-local dashboard cache (also useful for isolated tests)."""
+    global _STATE_CACHE_AT, _STATE_CACHE_VALUE, _STATE_CACHE_BODY
+    with _STATE_CACHE_LOCK:
+        _STATE_CACHE_AT = 0.0
+        _STATE_CACHE_VALUE = None
+        _STATE_CACHE_BODY = None
+
+
+def cached_state() -> tuple[dict[str, Any], bytes]:
+    """Aggregate and serialize at most once per cache window.
+
+    The browser polls frequently enough to make repeated JSON reads, portfolio
+    aggregation and serialization a material CPU consumer on the small VPS.
+    Serving the same immutable snapshot for two seconds keeps the dashboard
+    responsive without touching trading or feed freshness gates.
+    """
+    global _STATE_CACHE_AT, _STATE_CACHE_VALUE, _STATE_CACHE_BODY
+    now = time.monotonic()
+    with _STATE_CACHE_LOCK:
+        if (
+            _STATE_CACHE_VALUE is None
+            or _STATE_CACHE_BODY is None
+            or now - _STATE_CACHE_AT >= STATE_CACHE_SECONDS
+        ):
+            value = read_state()
+            body = json.dumps(
+                value, ensure_ascii=False, default=str
+            ).encode("utf-8")
+            _STATE_CACHE_VALUE = value
+            _STATE_CACHE_BODY = body
+            _STATE_CACHE_AT = time.monotonic()
+        return _STATE_CACHE_VALUE, _STATE_CACHE_BODY
 
 
 def _read_one(path: Path) -> dict[str, Any]:
@@ -422,10 +463,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, b"fast_dashboard.html not found", "text/plain")
             return
         if path == "/api/fast/state":
-            self._json(200, read_state())
+            _state, body = cached_state()
+            self._send(200, body, "application/json; charset=utf-8")
             return
         if path == "/healthz":
-            state = read_state()
+            state, _body = cached_state()
             self._json(200 if state.get("ready") else 503, {
                 "ready": bool(state.get("ready")),
                 "updated_at": state.get("updated_at"),

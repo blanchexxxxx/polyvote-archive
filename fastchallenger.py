@@ -109,9 +109,11 @@ class CashChallenger:
             self.config.get("incident_path", "fast_challenger_incident.json")
         )
         self.done: set[str] = set()
+        self.source_rowids = {asset: 0 for asset in self.specs}
+        self.pending = {asset: set() for asset in self.specs}
 
     def _source_rows(self) -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
+        rows: dict[str, dict[str, Any]] = {}
         for asset, path in self.source_paths.items():
             if not path.exists():
                 continue
@@ -120,12 +122,28 @@ class CashChallenger:
                 connection.row_factory = sqlite3.Row
                 connection.execute("PRAGMA query_only=ON")
                 for row in connection.execute(
-                    """SELECT * FROM observations
-                       WHERE created_ts>=? ORDER BY created_ts""",
-                    (self.frozen_ts,),
+                    """SELECT rowid source_rowid,* FROM observations
+                       WHERE created_ts>=? AND rowid>?
+                       ORDER BY rowid""",
+                    (self.frozen_ts, self.source_rowids[asset]),
                 ):
-                    rows.append({**dict(row), "asset": asset})
-        return sorted(rows, key=lambda row: float(row["created_ts"]))
+                    item = {**dict(row), "asset": asset}
+                    rows[str(item["observation_id"])] = item
+                    self.source_rowids[asset] = max(
+                        self.source_rowids[asset], int(item["source_rowid"])
+                    )
+                pending = sorted(self.pending[asset])
+                for start in range(0, len(pending), 200):
+                    batch = pending[start:start + 200]
+                    placeholders = ",".join("?" for _ in batch)
+                    for row in connection.execute(
+                        f"""SELECT rowid source_rowid,* FROM observations
+                            WHERE observation_id IN ({placeholders})""",
+                        batch,
+                    ):
+                        item = {**dict(row), "asset": asset}
+                        rows[str(item["observation_id"])] = item
+        return sorted(rows.values(), key=lambda row: float(row["created_ts"]))
 
     def _intent_id(self, row: dict[str, Any]) -> str:
         ledger = self.ledgers[str(row["asset"])]
@@ -410,7 +428,12 @@ class CashChallenger:
 
     def run_once(self) -> dict[str, Any]:
         for row in self._source_rows():
-            self._process_row(row)
+            asset = str(row["asset"])
+            source_id = str(row["observation_id"])
+            if self._process_row(row):
+                self.pending[asset].discard(source_id)
+            else:
+                self.pending[asset].add(source_id)
         state = self.state()
         write_state(self.state_path, state)
         return state

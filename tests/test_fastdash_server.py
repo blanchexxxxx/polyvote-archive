@@ -17,6 +17,7 @@ class FastDashboardServerTests(unittest.TestCase):
         self.old_html = fastdash_server.HTML_PATH
         self.old_state = fastdash_server.STATE_PATH
         self.old_state_dir = fastdash_server.STATE_DIR
+        fastdash_server.reset_state_cache()
         fastdash_server.HTML_PATH = root / "fast_dashboard.html"
         fastdash_server.STATE_PATH = root / "fast_state.json"
         fastdash_server.STATE_DIR = None
@@ -39,6 +40,7 @@ class FastDashboardServerTests(unittest.TestCase):
         fastdash_server.HTML_PATH = self.old_html
         fastdash_server.STATE_PATH = self.old_state
         fastdash_server.STATE_DIR = self.old_state_dir
+        fastdash_server.reset_state_cache()
         self.tmp.cleanup()
 
     def test_fast_routes_are_read_only_and_slow_is_gone(self):
@@ -126,6 +128,19 @@ class FastDashboardServerTests(unittest.TestCase):
         )
         self.assertTrue(result["bots"][0]["strategy_lanes"][0]["tracked_execution"])
         self.assertEqual(result["bots"][0]["diagnostics"]["cvd"]["status"], "NO_FEED")
+
+    def test_state_endpoint_reuses_serialized_snapshot(self):
+        with urlopen(self.base + "/api/fast/state", timeout=2) as response:
+            self.assertTrue(json.load(response)["ready"])
+        fastdash_server.STATE_PATH.write_text(
+            json.dumps({"ready": False, "updated_at": "2026-01-01T00:00:01Z"}),
+            encoding="utf-8",
+        )
+        with urlopen(self.base + "/api/fast/state", timeout=2) as response:
+            self.assertTrue(json.load(response)["ready"])
+        fastdash_server.reset_state_cache()
+        with urlopen(self.base + "/api/fast/state", timeout=2) as response:
+            self.assertFalse(json.load(response)["ready"])
 
 
 

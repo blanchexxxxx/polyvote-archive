@@ -78,6 +78,23 @@ class CashChallengerTests(unittest.TestCase):
         })
         return self.observer.settle(row["observation_id"], "UP")
 
+    def add_pending_observation(self, condition: str, ask: float, created: float):
+        return self.observer.create_candidate({
+            "condition_id": condition,
+            "slug": f"btc-updown-5m-{int(created)}",
+            "start_epoch": int(created),
+            "end_epoch": int(created + 300),
+            "outcome": "UP",
+            "fair_probability": 0.72,
+            "intended_ask": ask,
+            "limit_price": ask + 0.01,
+            "net_edge": 0.06,
+            "target_shares": 7.4,
+            "created_ts": created,
+            "due_ts": created + 0.05,
+            "details": {},
+        })
+
     def test_only_post_freeze_price_floor_trade_uses_finite_cash(self):
         self.add_observation("before", 0.65, 99)
         self.add_observation("cheap", 0.55, 101)
@@ -98,6 +115,32 @@ class CashChallengerTests(unittest.TestCase):
         self.config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
         with self.assertRaises(ValueError):
             CashChallenger(self.config_path)
+
+    def test_incremental_reader_tracks_pending_status_changes(self):
+        source = self.add_pending_observation("pending", 0.65, 101)
+        challenger = CashChallenger(self.config_path)
+        first = challenger.run_once()
+        self.assertEqual(first["fills"], 0)
+        self.assertIn(source["observation_id"], challenger.pending["BTC"])
+        self.assertEqual(challenger._source_rows()[0]["status"], "submitted")
+
+        self.observer.fill(source["observation_id"], {
+            "executed_ts": 101.06,
+            "shares": 7.4,
+            "average_price": 0.65,
+            "notional_usd": 4.81,
+            "fee_usd": 0.1,
+            "total_cost_usd": 4.91,
+            "slippage_usd": 0,
+            "latency_ms": 60,
+            "details": {},
+        })
+        self.observer.settle(source["observation_id"], "UP")
+        second = challenger.run_once()
+        self.assertEqual(second["fills"], 1)
+        self.assertEqual(second["settled"], 1)
+        self.assertNotIn(source["observation_id"], challenger.pending["BTC"])
+        self.assertEqual(challenger._source_rows(), [])
 
 
 if __name__ == "__main__":
