@@ -1,5 +1,8 @@
+import sqlite3
 import tempfile
+import time
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from polyvote.fastledger import FastLedger
@@ -45,6 +48,45 @@ class FastLedgerTests(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def test_unchanged_window_does_not_refresh_updated_timestamp(self):
+        with closing(sqlite3.connect(self.path)) as connection:
+            before = connection.execute(
+                "SELECT updated_ts FROM windows WHERE condition_id='condition-1'"
+            ).fetchone()[0]
+
+        time.sleep(0.01)
+        self.ledger.ensure_window(market(), 100.0, 100.0)
+
+        with closing(sqlite3.connect(self.path)) as connection:
+            unchanged = connection.execute(
+                "SELECT updated_ts FROM windows WHERE condition_id='condition-1'"
+            ).fetchone()[0]
+        self.assertEqual(unchanged, before)
+
+        changed_market = market()
+        changed_market["taker_delay_ms"] = 0
+        self.ledger.ensure_window(changed_market, 101.0, 101.0)
+        with closing(sqlite3.connect(self.path)) as connection:
+            changed = connection.execute(
+                """SELECT open_price,open_source_ts,metadata_json,updated_ts
+                   FROM windows WHERE condition_id='condition-1'"""
+            ).fetchone()
+        self.assertEqual(changed[:2], (101.0, 101.0))
+        self.assertIn('"taker_delay_ms":0', changed[2])
+        self.assertGreater(changed[3], unchanged)
+
+        with closing(sqlite3.connect(self.path)) as connection:
+            account_before = connection.execute(
+                "SELECT updated_ts FROM account WHERE run_id=?", (self.ledger.run_id,)
+            ).fetchone()[0]
+        time.sleep(0.01)
+        self.ledger.state()
+        with closing(sqlite3.connect(self.path)) as connection:
+            account_unchanged = connection.execute(
+                "SELECT updated_ts FROM account WHERE run_id=?", (self.ledger.run_id,)
+            ).fetchone()[0]
+        self.assertEqual(account_unchanged, account_before)
 
     def test_lock_fill_settle_and_restart_are_conservative(self):
         created = self.ledger.create_intent(intent(), minimum_reserve_usd=1)

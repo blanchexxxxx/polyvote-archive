@@ -301,7 +301,12 @@ class FastLedger:
                      open_price=COALESCE(excluded.open_price,windows.open_price),
                      open_source_ts=COALESCE(excluded.open_source_ts,windows.open_source_ts),
                      metadata_json=excluded.metadata_json,
-                     updated_ts=excluded.updated_ts""",
+                     updated_ts=excluded.updated_ts
+                   WHERE COALESCE(excluded.open_price,windows.open_price)
+                           IS NOT windows.open_price
+                      OR COALESCE(excluded.open_source_ts,windows.open_source_ts)
+                           IS NOT windows.open_source_ts
+                      OR excluded.metadata_json IS NOT windows.metadata_json""",
                 (
                     market["condition_id"],
                     self.run_id,
@@ -653,8 +658,18 @@ class FastLedger:
             drawdown = max(0.0, peak - equity)
             max_drawdown = max(float(account["max_drawdown_usd"]), drawdown)
             connection.execute(
-                "UPDATE account SET equity_peak_usd=?,max_drawdown_usd=?,updated_ts=? WHERE run_id=?",
-                (peak, max_drawdown, time.time(), self.run_id),
+                """UPDATE account
+                   SET equity_peak_usd=?,max_drawdown_usd=?,updated_ts=?
+                   WHERE run_id=?
+                     AND (equity_peak_usd IS NOT ? OR max_drawdown_usd IS NOT ?)""",
+                (
+                    peak,
+                    max_drawdown,
+                    time.time(),
+                    self.run_id,
+                    peak,
+                    max_drawdown,
+                ),
             )
             aggregate = dict(connection.execute(
                 """SELECT COUNT(*) fills,
