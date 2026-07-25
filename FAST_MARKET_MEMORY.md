@@ -1,6 +1,6 @@
 # Fast Market 工作记忆
 
-最后更新：2026-07-26 02:30 JST
+最后更新：2026-07-26 08:30 JST
 
 这份文件是当前快市场系统的唯一快速交接入口。旧 `HANDOFF.md` 主要描述已退休的慢市场，而且存在编码损坏；继续工作时先读本文件。
 
@@ -14,12 +14,12 @@
 - observer 的早期正收益已被大样本证伪：从 217 笔时的 `+$27.69961` 变成约 2239 笔时的 `-$341.90`。高胜率没有转化为正期望。
 - 独立 `$30` 有限现金实验 `favorite-price-holdout-v1` 已于 `2026-07-24T15:12:32Z` 冻结并启动。它只跟随该时间之后的 observer 到达盘口记录，额外规则只有 `intended ask >= 0.60`；这是待验证的事后假设，不是策略升级。
 - `favorite-price-holdout-v1` 在 6 笔官方结算后净亏 `$6.512921`，已触发自身 `challenger_portfolio_daily_loss_gate` 并永久 `HALTED`；不得解除或重置。它未达到 500 笔/336 小时门槛。
-- 2026-07-26 02:24 JST 的独立 warm probe 显示 VPS→CLOB IPv4 P95 约 `80.05ms`；部署前完整 240 样本窗口的服务内可控路径 P95 为约 `146.08–158.04ms`，仍未达 `<100ms`。
-- observer 在 3050 笔官方结算时费用、滑点和延迟后 ROI `-3.8380%`，每笔 P&L 95% CI `[-$0.317117,-$0.046609]`；点估计较上一轮回升，但总体净 P&L 和置信区间仍为负，不支持推广。
+- 2026-07-26 08:27 JST 的独立 warm probe 显示 VPS→CLOB IPv4 P95 约 `80.12ms`；08:28 JST 的完整 240 样本窗口可控路径 P95 为约 `143.48–215.99ms`，仍未达 `<100ms`。
+- observer 在 3218 笔官方结算的只读 SQL 快照中，费用、滑点和延迟后 ROI `-4.1645%`，每笔 P&L 95% CI `[-$0.328912,-$0.065013]`；累计净 P&L 和置信区间仍为负，不支持推广。
 - 去除 champion SQLite 的无变化 window/account 刷新后，四库修改频率短窗约降 `87.5%`、主进程单核 CPU 约降 `20.2%`，但 process write_bytes 仅降约 `10.7%`；四份每秒原子状态 JSON 及文件系统元数据放大成为主要剩余写入。
-- 新的同窗归因修正了上一轮口径：25.28 秒内状态 JSON `2,024,005B`、复盘 JSON `482,085B`，合计占主进程应用层 `wchar` 的约 `88.9%`；不能把逻辑载荷直接除以块设备 `write_bytes` 后据此排除原子文件。部署后 70.16 秒内复盘文件 0 次无效改写，状态 JSON 占应用层写入约 `96.5%`，但不同窗口的物理写速率没有可比下降，不能夸大收益。
+- 同盘受控基线进一步修正了写入口径：三次各 20 次原子替换的 gross `write_bytes / payload` 均约 `1.089×`，不是主进程同窗的 `5.45×`；主进程 `write_bytes=5,922,816B` 同时有 `cancelled_write_bytes=4,866,048B`，净记账 `1,056,768B` 约为状态载荷 `1,086,735B` 的 `0.97×`。不得把 gross `write_bytes` 单独称为物理写入，也没有证据支持为此迁移 tmpfs 或放弃原子读取语义。
 - 2026-07-26 已让 `run_due_reviews` 仅在产生新复盘或 bundle 缺失时写文件；不改变 1 秒运行状态 freshness。远端完整 60 秒复盘周期验证 0 次无效重写。
-- 四天的短窗口 CPU steal 多次处于约 `14–69%`，本轮 25.28 秒窗口为 `50.97%`、iowait `2.63%`。这仍不是连续 7 天证据，不足以建议升级机器。
+- 多个短窗口 CPU steal 仍处于约 `14–69%`；本轮完整 10.28 秒窗口为 `44.75%`、iowait `2.15%`。这仍不是连续 7 天证据，不足以建议升级机器。
 
 ## 运行位置与访问
 
@@ -43,14 +43,14 @@ journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 
 ## 当前运行快照
 
-快照时间：2026-07-25 17:20 UTC
+快照时间：2026-07-25 23:28 UTC
 
 - API `ready: true`
 - 资产执行引擎：4/4 在线（BTC、ETH、SOL、XRP）
 - 逻辑信号通道：16（每资产 4 条）
-- observer fills / settled：约 `3054 / 3050`
-- observer normalized P&L：约 `-$554.68`
-- observer accuracy：约 `60.59%`
+- observer fills / settled：约 `3222 / 3220`
+- observer normalized P&L：约 `-$633.98`
+- observer accuracy：约 `60.2%`
 - champion equity：`$7.790189`
 - champion halt：`portfolio_incident_latched`
 - finite-cash challenger：`favorite-price-holdout-v1`
@@ -123,6 +123,7 @@ journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 - 2026-07-25 进一步让 `FastLedger` 的重复 window/account 刷新在值未变化时成为 SQLite no-op；本地 39 项 Fast 测试、前端 validator 和静态编译通过，VPS 39 项 Fast 测试与静态编译通过。主引擎在 0 pending / 0 position / observer WAIT 安全窗口重启，4/4 在线；challenger 未重启。
 - 2026-07-25 20:20 JST 只读归因显示四份 1 秒状态 JSON 的逻辑载荷仅解释主进程约 `17–19%` 的写入；本轮没有足够证据支持代码或运维改动。本地 39 项 Fast 测试、前端 validator 与静态编译通过；未部署、未重启。
 - 2026-07-26 修正写入归因口径，并停止无新复盘时每分钟重写四份约 160KB bundle。本地与 VPS 各 39 项 Fast 测试、前端 validator（本地）和静态编译通过；只用 `deploy/push.sh` 部署，主引擎在 0 pending / 0 position / champion+observer WAIT 安全窗口重启，challenger 未重启。部署后 70.16 秒验证复盘 mtime 0 次变化、4/4 在线。
+- 2026-07-26 以同一文件系统、相同四文件大小和 1 秒 cadence 做三次受控原子替换基线；60 次替换的 gross 放大稳定为约 `1.089×`，临时目录全部删除。证据否定“状态原子替换本身造成约 5.45× 物理放大”；本地 39 项 Fast 测试、前端 validator、静态编译和 diff check 通过，本轮未改代码、未部署、未重启。
 
 ## 重要口径
 
@@ -138,7 +139,7 @@ journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 1. 保持 `favorite-price-holdout-v1` 参数冻结，收集至少 500 笔官方结算和 336 小时运行；不得因中途盈亏改规则或重置账本。
 2. 把概率校准误差、价格区间和方向差异作为下一批并行 challenger 假设，不得回头过滤本次 holdout。
 3. 把四条策略通道分别建立独立账本；在此之前不要把 16 lanes 描述成 16 个已交易 bot。
-4. 在不降低 1 秒状态 freshness、不改变原子读取语义的前提下，复现并量化四份状态快照在当前文件系统上的物理写放大，比较同盘受控原子写基线与主进程数据，再决定是否值得采用可回滚的内存临时路径或合并 writer；没有启动顺序、崩溃恢复和 dashboard 验收前不要迁移 tmpfs。继续拆分 HTTP、event-loop 与 VPS 路由，但不能把延迟当作唯一亏损根因。
+4. 保持状态 writer、1 秒 freshness 和原子读取语义不变；下一轮用低开销同窗数据把主进程 gross `write_bytes` 中被 `cancelled_write_bytes` 抵消的来源与 event-loop P95 分开归因，优先判断 SQLite/page-cache 取消记账是否只是观测口径噪声。继续拆分 HTTP、event-loop 与 VPS 路由，但不能把延迟当作唯一亏损根因。
 5. 若接入 CVD/清算，使用一个共享 Binance Futures collector，再广播给四资产引擎；不要每个策略重复开连接。
 
 ## 安全边界
