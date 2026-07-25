@@ -6,7 +6,7 @@ Local workstation override (2026-07-24): use `C:\Users\<user>\.ssh\<ssh-key>.pem
 
 # Fast Market 工作记忆
 
-最后更新：2026-07-25 14:35 JST
+最后更新：2026-07-25 20:20 JST
 
 这份文件是当前快市场系统的唯一快速交接入口。旧 `HANDOFF.md` 主要描述已退休的慢市场，而且存在编码损坏；继续工作时先读本文件。
 
@@ -20,10 +20,11 @@ Local workstation override (2026-07-24): use `C:\Users\<user>\.ssh\<ssh-key>.pem
 - observer 的早期正收益已被大样本证伪：从 217 笔时的 `+$27.69961` 变成约 2239 笔时的 `-$341.90`。高胜率没有转化为正期望。
 - 独立 `$30` 有限现金实验 `favorite-price-holdout-v1` 已于 `2026-07-24T15:12:32Z` 冻结并启动。它只跟随该时间之后的 observer 到达盘口记录，额外规则只有 `intended ask >= 0.60`；这是待验证的事后假设，不是策略升级。
 - `favorite-price-holdout-v1` 在 6 笔官方结算后净亏 `$6.512921`，已触发自身 `challenger_portfolio_daily_loss_gate` 并永久 `HALTED`；不得解除或重置。它未达到 500 笔/336 小时门槛。
-- 2026-07-25 14:35 JST 的独立 warm probe 显示 VPS→CLOB IPv4/IPv6 P95 约 `80.74/80.37ms`；部署前完整窗口的服务内可控路径 P95 为约 `191–241ms`，仍未达 `<100ms`。
-- observer 在 2709 笔官方结算时费用、滑点和延迟后 ROI `-4.3628%`，每笔 P&L 95% CI `[-$0.349411,-$0.066281]`，负期望证据进一步增强。
+- 2026-07-25 20:20 JST 的独立 warm probe 显示 VPS→CLOB IPv4 P95 约 `80.68ms`；完整 240 样本窗口的服务内可控路径 P95 为约 `184.85–186.74ms`，仍未达 `<100ms`。
+- observer 在 2877 笔官方结算时费用、滑点和延迟后 ROI `-4.6679%`，每笔 P&L 95% CI `[-$0.360105,-$0.083052]`，负期望证据进一步增强。
 - 去除 champion SQLite 的无变化 window/account 刷新后，四库修改频率短窗约降 `87.5%`、主进程单核 CPU 约降 `20.2%`，但 process write_bytes 仅降约 `10.7%`；四份每秒原子状态 JSON 及文件系统元数据放大成为主要剩余写入。
-- 两轮短窗口 CPU steal 多次处于约 `14–69%`。这仍不是连续 7 天证据，不足以建议升级机器。
+- 25.04 秒同窗测得四份状态 JSON 逻辑载荷约 `99,746B/s`，仅为主进程 `571,709B/s` write_bytes 的约 `17.4%`（按 4KiB 向上估算约 `19%`）；它们是稳定写入源，但不是剩余写入的主要解释，不能据此贸然迁移 tmpfs。
+- 三天的短窗口 CPU steal 多次处于约 `14–69%`，本轮 25 秒窗口为 `49.0%`。这仍不是连续 7 天证据，不足以建议升级机器。
 
 ## 运行位置与访问
 
@@ -47,14 +48,14 @@ journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 
 ## 当前运行快照
 
-快照时间：2026-07-25 05:35 UTC
+快照时间：2026-07-25 11:15 UTC
 
 - API `ready: true`
 - 资产执行引擎：4/4 在线（BTC、ETH、SOL、XRP）
 - 逻辑信号通道：16（每资产 4 条）
-- observer fills / settled：约 `2717 / 2717`
-- observer normalized P&L：约 `-$556.46`
-- observer accuracy：约 `61.13%`
+- observer fills / settled：约 `2878 / 2877`
+- observer normalized P&L：约 `-$637.48`
+- observer accuracy：约 `60.41%`
 - champion equity：`$7.790189`
 - champion halt：`portfolio_incident_latched`
 - finite-cash challenger：`favorite-price-holdout-v1`
@@ -125,6 +126,7 @@ journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 - 浏览器控制台无 warning/error。
 - 2026-07-25 将已锁定 challenger 的轮询从 2 秒退避到 10 秒；COLLECTING 仍为 2 秒。稳态 30 秒采样中 challenger 单核 CPU 约从 `7.45%` 降至 `3.13%`，写入速率约降 `70.7%`；rowid 增量读取仍会补齐全部 observer 记录。
 - 2026-07-25 进一步让 `FastLedger` 的重复 window/account 刷新在值未变化时成为 SQLite no-op；本地 39 项 Fast 测试、前端 validator 和静态编译通过，VPS 39 项 Fast 测试与静态编译通过。主引擎在 0 pending / 0 position / observer WAIT 安全窗口重启，4/4 在线；challenger 未重启。
+- 2026-07-25 20:20 JST 只读归因显示四份 1 秒状态 JSON 的逻辑载荷仅解释主进程约 `17–19%` 的写入；本轮没有足够证据支持代码或运维改动。本地 39 项 Fast 测试、前端 validator 与静态编译通过；未部署、未重启。
 
 ## 重要口径
 
@@ -140,7 +142,7 @@ journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 1. 保持 `favorite-price-holdout-v1` 参数冻结，收集至少 500 笔官方结算和 336 小时运行；不得因中途盈亏改规则或重置账本。
 2. 把概率校准误差、价格区间和方向差异作为下一批并行 challenger 假设，不得回头过滤本次 holdout。
 3. 把四条策略通道分别建立独立账本；在此之前不要把 16 lanes 描述成 16 个已交易 bot。
-4. 在不降低 1 秒状态 freshness、不重启清空指标的前提下，量化四份原子状态 JSON 的物理写放大，并评估安全的内存态临时路径或合并写入；继续拆分 HTTP、event-loop 与 VPS 路由，但不能把延迟当作唯一亏损根因。
+4. 在不降低 1 秒状态 freshness、不重启清空指标的前提下，用低开销按文件归因隔离主进程剩余约 `0.47MB/s` 写入，优先确认 observer SQLite、决策 JSONL、日志和原子替换各自占比；没有可复现归因前不要迁移 tmpfs。继续拆分 HTTP、event-loop 与 VPS 路由，但不能把延迟当作唯一亏损根因。
 5. 若接入 CVD/清算，使用一个共享 Binance Futures collector，再广播给四资产引擎；不要每个策略重复开连接。
 
 ## 安全边界
