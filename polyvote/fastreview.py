@@ -339,11 +339,13 @@ def run_due_reviews(
         ledger.record_review(review_type, start, end, report)
         created.append(report)
 
-    bundle = {
-        "schema": "fast-review-bundle-v2",
-        "run_id": ledger.run_id,
-        "updated_at": now,
-        "reviews": ledger.recent_reviews(50),
-    }
-    write_state(Path(review_path), bundle)
+    review_path = Path(review_path)
+    if created or not review_path.exists():
+        bundle = {
+            "schema": "fast-review-bundle-v2",
+            "run_id": ledger.run_id,
+            "updated_at": now,
+            "reviews": ledger.recent_reviews(50),
+        }
+        write_state(review_path, bundle)
     return created

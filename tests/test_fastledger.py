@@ -196,6 +196,19 @@ class FastLedgerTests(unittest.TestCase):
         )
         self.assertTrue(created)
         self.assertTrue(path.exists())
+        before_mtime = path.stat().st_mtime_ns
+        before_contents = path.read_bytes()
+
+        time.sleep(0.01)
+        created = run_due_reviews(
+            self.ledger,
+            path,
+            {"network": {"under_50ms": True, "reconnects": {}}},
+            now=10_030,
+        )
+        self.assertFalse(created)
+        self.assertEqual(path.stat().st_mtime_ns, before_mtime)
+        self.assertEqual(path.read_bytes(), before_contents)
 
 
 if __name__ == "__main__":

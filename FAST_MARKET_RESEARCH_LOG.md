@@ -197,3 +197,74 @@ arrival latency 分桶的净 ROI：`<=100ms` n=74、`+6.1563%`，但每笔 P&L 9
 - 收益证据：**未达标**；2877 笔费用、滑点和延迟后 ROI `-4.6679%`，每笔 P&L 95% CI 完全低于 0；冻结 holdout 仅 6 笔/20.041h 且已永久锁定。
 - 最新可验证教训：四份 1 秒状态 JSON 不是剩余物理写入的主要解释项；在迁移 tmpfs 或合并写入前，必须先隔离 observer SQLite、决策 JSONL、日志与原子替换的各自写入占比。
 - 下一轮唯一优先项：不重启、不降低 freshness，使用低开销的按文件写入归因手段隔离主进程剩余约 `0.47MB/s`，优先确认 observer SQLite 与决策日志占比；没有可复现归因前继续只记录，不改代码、不建议付费升级。
+
+## 2026-07-26 02:30 JST（2026-07-25 17:30 UTC）
+
+### 运行、安全与收益
+
+- 17:14 UTC 部署前本地聚合 API：`ready=true`、`mode=SHADOW`、4/4 execution engines、16 lanes、4 markets；四引擎 state age `0.083–1.041s`，champion/observer 均为 `WAIT`，0 pending execution、0 champion positions。
+- champion 保持 12/12 settled、3 wins，P&L `-$22.209811`、fees `$1.602610`、slippage `$0.338621`、equity `$7.790189`、ROI `-56.8945%`；`portfolio_incident_latched` 未动。
+- 17:20 UTC 直接只读四个 observer SQLite：3050 settled / 1848 wins，P&L `-$554.682802`，fees `$376.752185`，slippage `$21.945316`，staked/cost `$14,452.311602`，accuracy `60.5902%`（Wilson 95% CI `[58.8436%,62.3100%]`），ROI `-3.8380%`，Brier `0.232060`；每笔平均 P&L `-$0.181863`，普通近似 95% CI `[-$0.317117,-$0.046609]`。
+- 与上一轮 2877 settled 的直接 SQL 快照相比：`+173` 笔，净 P&L 点估计回升 `$82.799265`，ROI `-4.6679% → -3.8380%`；但累计 P&L 和每笔 P&L 置信区间仍完全小于 0，不能解释为正期望或推广证据。
+- `favorite-price-holdout-v1` 仍冻结并永久 `HALTED`：6/6 settled、3 wins，P&L `-$6.512921`、fees `$0.521856`、slippage `$0.050034`、equity `$23.487079`、ROI `-27.3899%`，运行约 `26.025h`，promotion `eligible=false`。冻结规则、账本和事故锁未改。
+
+价格区间：
+
+| intended ask | n | accuracy | 净 P&L | ROI | Brier |
+|---|---:|---:|---:|---:|---:|
+| 0.0–0.4 | 30 | 26.6667% | -$19.246484 | -15.5249% | 0.289421 |
+| 0.4–0.6 | 1344 | 48.7351% | -$405.146375 | -6.4686% | 0.263672 |
+| 0.6–0.8 | 1308 | 66.9725% | -$104.891205 | -1.6722% | 0.224451 |
+| 0.8–1.0 | 368 | 83.9674% | -$25.398739 | -1.4170% | 0.138973 |
+
+- 方向：UP n=1459、ROI `-2.4924%`、Brier `0.230481`；DOWN n=1591、ROI `-5.0735%`、Brier `0.233507`。
+- selected probability 校准：`0.55–0.60` accuracy/ROI `42.81%/-11.2375%`；`0.60–0.70` `54.10%/-3.5719%`；`0.70–0.80` `65.51%/-1.5150%`；`0.80–0.90` `77.59%/+0.3000%`；`0.90–1.00` `85.90%/-1.6523%`。唯一正点估计桶的每笔 P&L 95% CI `[-$0.223491,+$0.252662]` 跨 0，不得用于回改冻结 holdout。
+- observer arrival latency P50/P95/max `561.236/2082.640/9951.273ms`；这是信号到模拟到达盘口的分布，不是当前 RTT。`<=100ms` n=83、ROI `+7.5367%`，但每笔 P&L 95% CI `[-$0.424309,+$1.157770]` 跨 0；`100–250ms`、`250–500ms`、`500–1000ms`、`>1000ms` ROI 分别为 `-7.4949%/-5.4188%/-0.7046%/-4.6188%`。
+- champion latency P50/P95/max `40.423/59.633/73.991ms`；challenger `721.601/7479.022/9438.540ms`。两者分别只有 12 笔和 6 笔，不能外推。
+
+### 延迟与 VPS 资源原始指标
+
+17:14 UTC 部署前完整 240 样本窗口（HTTP / decision / event-loop 均为 P50/P95/max ms；括号为可控路径 P95、官方 delay、RTDS/market reconnect）：
+
+- BTC `39.43/80.72/237.94`；`0.04/0.08/75.88`；`18.08/77.24/454.95`（`158.04`、`0ms verified`、`1/1`）。
+- ETH `39.09/80.61/377.58`；`0.03/0.07/0.13`；`18.37/65.40/454.94`（`146.08`、`0ms verified`、`1/0`）。
+- SOL `47.66/83.11/323.07`；`0.02/0.06/0.10`；`18.11/65.39/454.95`（`148.56`、`0ms verified`、`1/1`）。
+- XRP `38.99/80.65/483.17`；`0.02/0.05/52.12`；`18.11/65.39/454.95`（`146.09`、`0ms verified`、`1/1`）。
+- 独立 30-sample IPv4 CLOB keep-alive probe：P50/P95/P99/max `18.84/80.05/80.39/80.43ms`，0 errors。公网 warm P95 已占 100ms 预算约 80%，当前完整窗口仍未达标。
+- 25.28 秒 `/proc` 同窗：主进程单核 CPU `72.55%`、write_bytes `12,926,976B`（`511,350B/s`）、应用层 `wchar=2,817,879B`；CPU steal `50.97%`、iowait `2.63%`。
+- 内存总计 `434,307,072B`，available `155,832,320B`；swap 使用 `118,550,528B / 1,073,737,728B`。
+- 这是第 4 个有日期的短窗 steal 记录，仍不是连续 7 天证据；没有建议付费升级。
+
+### 写入归因、假设与唯一改动
+
+25.28 秒同窗按文件观测：
+
+| 类别 | mtime 变化 | 应用层完整重写载荷 / 文件增长 |
+|---|---:|---:|
+| 四份 1 秒状态 JSON | 63 | 2,024,005B |
+| 四份复盘 bundle JSON | 3 | 482,085B |
+| fastbot.log | 5 | +402B |
+| champion SQLite 家族 | 18 | +4,152B |
+| observer SQLite 家族 | 18 | +32B |
+
+- 状态与复盘 JSON 合计 `2,506,090B`，占同窗主进程应用层 `wchar` 的 `88.9%`；状态单项占 `71.8%`。上一轮把约 100KB/s 逻辑状态载荷直接除以约 0.57MB/s 块设备 write_bytes 后据此排除状态文件，口径不成立，因为两者之间还包含当前文件系统对原子重写的物理放大。
+- 可复现浪费：`run_due_reviews()` 每 60 秒无条件更新 `updated_at` 并原子重写约 160KB bundle，即使 SQLite 没有生成任何新 hourly/daily/weekly review；这些文件没有运行时消费者，主状态中的 review 仍直接来自 SQLite。
+- 本轮唯一代码改动：只有在确实创建新 review 或 bundle 文件缺失时才重写复盘 bundle；首次生成、真实新复盘、事故判断、1 秒状态 freshness、指标窗口、风控、holdout 和 live mode 均不变。
+- 部署后 70.16 秒完整复盘周期：review mtime 变化 `0`、review 载荷 `0B`；状态 JSON 220 次改写、载荷 `6,369,229B`，占主进程 `wchar=6,600,728B` 的 `96.5%`。行为改动验证成功。
+- 同一部署后窗口 process write_bytes 为 `543,296B/s`，没有比部署前形成可比下降；窗口相位、重启后初始化和 VPS steal 不同，不能声称物理写入或 P95 已改善。剩余写入研究重点现可收敛到四份状态快照及其原子替换，而不是 observer SQLite 或决策 JSONL。
+
+### 测试、部署、失败与恢复
+
+- 本地：39 项 Fast unittest、前端 validator、相关 py_compile、`git diff --check` 全过；新增回归断言在同一 review 周期内第二次调用不改 mtime 或内容。
+- 首次短时 `strace` 写调用归因对 event loop 扰动明显，且采样包装脚本误把 `cancelled_write_bytes` 一并读入导致算术失败；该窗口未用于性能结论，后续改用 `/proc` + 文件 mtime/载荷低开销归因。
+- 第一次调用 `bash deploy/push.sh` 被 Windows WSL `bash` 接管，`/c/...` 密钥路径在 WSL 下不存在，SSH 在上传前失败，VPS 未改变。随后显式使用 Git Bash 再运行同一个 `deploy/push.sh`，上传成功；没有手工 tar。
+- VPS：39 项 Fast unittest 与静态编译通过；VPS 无 Node，前端 validator 只在本地执行。dashboard 按脚本安全重启。
+- 主引擎只在远端脚本连续确认四资产 champion/observer 均 `WAIT`、0 pending、0 positions、`portfolio_incident_latched` 存在后重启；challenger 未重启。部署后 API `ready=true`、4/4 在线、16 lanes、0 pending、0 positions；三个 systemd user services 均 active/running，主引擎新日志无 warning。
+- 重启后 HTTP 只有 22–23 个样本，未用于宣称延迟改善；本轮 P95 结论只使用部署前完整 240 样本窗口。
+
+### 结论与下一轮唯一优先项
+
+- `P95<100ms`：**未达成**；部署前完整窗口可控路径 P95 `146.08–158.04ms`，独立公网 warm P95 `80.05ms`。
+- 收益证据：**未达标**；3050 笔费用、滑点和延迟后总体 ROI `-3.8380%`，每笔 P&L 95% CI 完全低于 0；冻结 holdout 仍仅 6 笔/26.025h 且永久锁定。
+- 最新可验证教训：应用层载荷与块设备 write_bytes 不能直接按占比排除原子文件；去掉复盘空写后，四份 1 秒状态 JSON 已占主进程应用层写入约 `96.5%`，但尚未证明某个替代设计能安全降低物理写入。
+- 下一轮唯一优先项：不重启、不降低 1 秒 freshness、不改变原子读取语义，在同一文件系统做受控原子写基线并量化四份状态快照的物理放大；只有同时设计好启动顺序、崩溃恢复、dashboard fallback 和回滚验收，才评估内存临时路径或合并 writer。
