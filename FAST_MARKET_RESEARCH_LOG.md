@@ -320,3 +320,61 @@ arrival latency 分桶的净 ROI：`<=100ms` n=74、`+6.1563%`，但每笔 P&L 9
 - 收益证据：**未达标**；3218 笔费用、滑点和延迟后 ROI `-4.1645%`，每笔 P&L 95% CI 完全低于 0；冻结 holdout 仍仅 6 笔/32.259h 且永久锁定。
 - 最新可验证教训：gross `write_bytes` 必须与 `cancelled_write_bytes` 并列；同盘原子替换本身仅约 `1.089×` gross 载荷，不能据主进程 `5.45×` gross 比值推动 tmpfs 或合并 writer。
 - 下一轮唯一优先项：保持 state writer、1 秒 freshness 和原子语义不变，用低开销同窗数据把主进程 gross `write_bytes` 中被取消的来源与 event-loop P95 分开归因，优先判断 SQLite/page-cache 取消记账是否只是观测噪声；没有明确软件浪费前继续只记录。
+
+## 2026-07-26 14:30 JST（2026-07-26 05:30 UTC）
+
+### 运行、安全与收益
+
+- 05:23 UTC 最终本地聚合 API：`ready=true`、`mode=SHADOW`、4/4 execution engines、16 lanes、0 champion positions；四引擎 state age `0.320–1.039s`，champion/observer 均为 `WAIT`。champion 保持 12/12 settled、3 wins、P&L `-$22.209811`、fees `$1.602610`、equity `$7.790189`、ROI `-56.8945%`，`portfolio_incident_latched` 未动。
+- 05:18 UTC 直接只读四个 observer SQLite：3381 settled / 2022 wins，P&L `-$684.891614`，fees `$421.907012`，slippage `$25.051049`，cost `$15,976.687414`，accuracy `59.8048%`，ROI `-4.2868%`，Brier `0.233946`；每笔平均 P&L `-$0.202571`，普通近似 95% CI `[-$0.332280,-$0.072861]`。
+- 与上一轮 3218 settled 的直接 SQL 快照相比：`+163` 笔，净 P&L 再降 `$51.066411`，ROI `-4.1645% → -4.2868%`；累计净收益和每笔 P&L 区间仍完全为负。05:23 UTC API 已继续到 3383 settled、P&L `-$679.402551`，两笔差异来自采集时序。
+- `favorite-price-holdout-v1` 仍冻结并永久 `HALTED`：6/6 settled、3 wins、P&L `-$6.512921`、fees `$0.521856`、slippage `$0.050034`、equity `$23.487079`、ROI `-27.3899%`，运行约 `38.173h`，promotion `eligible=false`。仍只有 6/500 笔和 38.173/336 小时，规则、账本与事故锁未改。
+
+价格区间：
+
+| intended ask | n | accuracy | 净 P&L | ROI | Brier |
+|---|---:|---:|---:|---:|---:|
+| 0.0–0.4 | 43 | 27.9070% | -$24.205146 | -13.3015% | 0.292384 |
+| 0.4–0.6 | 1537 | 48.0156% | -$529.540132 | -7.4101% | 0.265140 |
+| 0.6–0.8 | 1410 | 66.8794% | -$109.322252 | -1.6205% | 0.224986 |
+| 0.8–1.0 | 391 | 84.1432% | -$21.824085 | -1.1472% | 0.137208 |
+
+- 方向：UP n=1602、accuracy `60.6117%`、P&L `-$207.690468`、ROI `-2.7413%`、Brier `0.231710`，每笔 P&L CI `[-$0.317942,+$0.058653]`；DOWN n=1779、accuracy `59.0781%`、P&L `-$477.201147`、ROI `-5.6807%`、Brier `0.235960`，每笔 P&L CI `[-$0.447170,-$0.089312]`。
+- selected probability 校准：`0.55–0.60` accuracy/ROI `42.3868%/-11.5777%`；`0.60–0.70` `53.2847%/-4.4991%`；`0.70–0.80` `65.3798%/-1.5645%`；`0.80–0.90` `77.4704%/+0.5687%`；`0.90–1.00` `85.8300%/-1.5390%`。唯一正点估计桶的每笔 P&L 95% CI `[-$0.204200,+$0.259367]` 跨 0，不得据此回改冻结 holdout。
+- observer arrival latency P50/P95/max `562.333/2084.145/9951.273ms`；这是历史信号到模拟到达盘口的分布，不是当前 RTT。`<=100ms` n=87、ROI `+10.3163%`，但每笔 P&L 95% CI `[-$0.264993,+$1.269332]` 跨 0；`100–250ms`、`250–500ms`、`500–1000ms`、`>1000ms` ROI 分别为 `-7.2625%/-5.8708%/-2.3731%/-4.3939%`。
+- champion latency P50/P95/max `40.292/73.991/73.991ms`；challenger `643.080/9438.540/9438.540ms`。两者分别只有 12 笔和 6 笔，不能外推。
+
+### 延迟、资源与取消写配对窗口
+
+- 05:15 UTC 完整 240 样本窗口：BTC/ETH/SOL/XRP 的 HTTP P95 为 `80.68/81.59/81.27/80.79ms`，decision P95 为 `0.09/0.05/0.05/0.07ms`，event-loop P95 为 `64.74/64.75/64.75/64.75ms`，可控路径 P95 为 `145.51–146.39ms`。
+- 独立 30-sample IPv4 keep-alive probe：P50/P95/P99/max `40.30/80.79/96.80/96.80ms`，0 errors。官方 delay 四资产均为 `0ms`、verified，继续单列。
+- 05:19 UTC 五分钟市场切换附近，240 样本 event-loop P95 短时升至 `305.95–324.17ms`，可控路径 P95 `387.29–409.81ms`。随后 05:20 UTC 安静窗口回落到 event-loop P95 `58.74–62.12ms`、可控路径 P95 `139.94–144.40ms`。05:23 UTC 最终 API 又为 event-loop P95 `160.41–213.96ms`、可控路径 P95 `244.15–295.15ms`；这说明当前尾延迟不稳定，不能用安静片段宣称达标。
+- 三个 systemd user services 均为 active/running；主引擎自 `2026-07-25 17:28:12 UTC`、challenger 自 `2026-07-24 23:22:51 UTC`、dashboard 自 `2026-07-25 17:26:33 UTC` 持续运行，本轮未重启。
+- 内存 total `434,307,072B`、available `149,303,296B`；swap 使用 `117,977,088B / 1,073,737,728B`。
+
+两段低开销 `/proc` 配对窗口：
+
+| 窗口 | main CPU（单核） | steal / iowait | gross write | cancelled write | gross-cancelled | wchar |
+|---|---:|---:|---:|---:|---:|---:|
+| 8.48s，市场切换附近 | 62.27% | 45.28% / 0.43% | 4,546,560B | 3,784,704B | 761,856B | 862,157B |
+| 6.13s，切换后安静段 | 33.45% | 29.98% / 2.36% | 3,964,928B | 3,227,648B | 737,280B | 802,421B |
+
+- 两窗 `cancelled_write_bytes / gross write_bytes` 分别约 `83.25%` 和 `81.40%`；扣除取消后的写记账分别约为应用层 `wchar` 的 `88.37%` 和 `91.89%`。gross 值继续不能称为物理写盘。
+- 两窗中四份 state JSON 均更新；observer SQLite、decision JSONL 和 review bundle 均无 mtime 或尺寸变化。champion SQLite 分别有 3/4 和 4/4 主文件 mtime 变化，但尺寸不变。
+- 安静段的 gross、cancelled、gross-cancelled 和 `wchar` 每秒速率都高于市场切换尖峰段，而 event-loop P95 显著更低。因此这两段数据不支持“取消写记账量导致 event-loop 尖峰”；取消记账更像页缓存/覆盖写口径噪声，但 state atomic replace 与 champion SQLite 的各自份额仍未完全隔离。
+- 市场切换尖峰同时伴随更高 CPU steal；但仍只是同一天的两个短窗，不足以把尖峰单独归因于平台调度，也不满足连续 7 天付费升级门槛。
+
+### 假设、失败、决定与验证
+
+- 上轮假设：“main gross 写入中的 cancelled 部分可能是 SQLite/page-cache 观测噪声，并可能与 event-loop P95 无关”。本轮结果：**初步支持，但未完成来源拆分**。取消比例在高、低 event-loop 窗口都约 81–83%，且安静段写速率更高；没有证据支持修改 state writer、SQLite 语义或 freshness。
+- 首次 API 投影误把完整 challenger recent trades 带入，输出被截断；随后只选必需字段，最终快照完整。两次经组合工具启动的长 SSH 命令在 yield 后未回传内容，已改用直接 PTY 命令成功重跑；失败窗口未用于结论。
+- 一次带空格的 `journalctl --since` 参数被远端 shell 拆分而失败；随后用只读固定尾部日志检查。三个服务日志只有历史 systemd 启停记录，没有本轮新重启或崩溃证据。
+- 本轮没有代码或运维改动，没有部署、提交前服务重启或事故锁变化。原因是现有证据只排除了若干错误归因，尚未指出一个明确、可复现、低风险的软件修复。
+- 本地 39 项 Fast unittest、前端 validator、相关 `py_compile`、同步副本检查和 `git diff --check` 全部通过。
+
+### 结论与下一轮唯一优先项
+
+- `P95<100ms`：**未达成**；完整窗口从 `145.51–146.39ms` 到最终 `244.15–295.15ms`，独立公网 warm P95 `80.79ms`。
+- 收益证据：**未达标**；3381 笔费用、滑点和延迟后 ROI `-4.2868%`，每笔 P&L 95% CI 完全低于 0；冻结 holdout 仍仅 6 笔/38.173h 且永久锁定。
+- 最新可验证教训：main gross 写入约 81–83% 被 cancelled 抵消，取消比例在高低 event-loop 窗口相近，不能把 gross 写入或取消写记账当成尾延迟根因；市场切换相位和 CPU steal 更值得下一轮同窗分离。
+- 下一轮唯一优先项：不重启、不改 240 样本窗口，在至少三个自然五分钟边界前后以低开销同窗采样对齐 market activation、event-loop P95、HTTP P95、CPU steal 和进程 CPU，判断尖峰来自内部同步工作还是 VPS 调度；没有可复现归因前继续只记录。
