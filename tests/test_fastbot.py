@@ -3,9 +3,39 @@ import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import Mock, patch
 
-from fastbot import FastBot
+from fastbot import FastBot, PersistentClobProbe
 from polyvote.fastconfig import load_fast_config
+
+
+class PersistentClobProbeTests(unittest.TestCase):
+    @patch("fastbot.http.client.HTTPSConnection")
+    def test_measure_preserves_total_and_splits_queue_ttfb_and_body(self, connection_cls):
+        response = Mock(status=200)
+        response.read.return_value = b"ok"
+        connection_cls.return_value.getresponse.return_value = response
+        probe = PersistentClobProbe()
+
+        sample = probe.measure(time.perf_counter() - 0.001)
+
+        self.assertEqual(
+            set(sample),
+            {"total_ms", "queue_wait_ms", "socket_ttfb_ms", "body_read_ms"},
+        )
+        self.assertGreaterEqual(sample["queue_wait_ms"], 1.0)
+        self.assertGreaterEqual(sample["socket_ttfb_ms"], 0.0)
+        self.assertGreaterEqual(sample["body_read_ms"], 0.0)
+        self.assertAlmostEqual(
+            sample["total_ms"],
+            sample["socket_ttfb_ms"] + sample["body_read_ms"],
+            places=6,
+        )
+        connection_cls.return_value.request.assert_called_once_with(
+            "GET",
+            "/time",
+            headers={"Connection": "keep-alive"},
+        )
 
 
 class FastBotFeedTests(unittest.TestCase):

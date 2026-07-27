@@ -98,7 +98,13 @@ class PersistentClobProbe:
         self.connection: http.client.HTTPSConnection | None = None
         self.lock = threading.Lock()
 
-    def measure_ms(self) -> float:
+    def measure(self, submitted_at: float | None = None) -> dict[str, float]:
+        worker_started = time.perf_counter()
+        queue_wait_ms = (
+            max(0.0, worker_started - submitted_at) * 1000
+            if submitted_at is not None
+            else 0.0
+        )
         with self.lock:
             began = time.perf_counter()
             try:
@@ -106,13 +112,23 @@ class PersistentClobProbe:
                     self.connection = http.client.HTTPSConnection(self.host, timeout=5)
                 self.connection.request("GET", "/time", headers={"Connection": "keep-alive"})
                 response = self.connection.getresponse()
+                headers_received = time.perf_counter()
                 response.read()
+                finished = time.perf_counter()
                 if response.status != 200:
                     raise OSError(f"HTTP {response.status}")
-                return (time.perf_counter() - began) * 1000
+                return {
+                    "total_ms": (finished - began) * 1000,
+                    "queue_wait_ms": queue_wait_ms,
+                    "socket_ttfb_ms": (headers_received - began) * 1000,
+                    "body_read_ms": (finished - headers_received) * 1000,
+                }
             except Exception:
                 self.close()
                 raise
+
+    def measure_ms(self) -> float:
+        return self.measure()["total_ms"]
 
     def close(self) -> None:
         if self.connection is not None:
@@ -136,6 +152,9 @@ class FastBot:
         self.session: aiohttp.ClientSession | None = None
         self.logs: deque[dict[str, Any]] = deque(maxlen=30)
         self.clob_http = MetricWindow()
+        self.clob_http_queue_wait = MetricWindow()
+        self.clob_http_socket_ttfb = MetricWindow()
+        self.clob_http_body_read = MetricWindow()
         self.decision_compute = MetricWindow()
         self.event_loop_lag = MetricWindow()
         self.http_probe = PersistentClobProbe()
@@ -663,13 +682,16 @@ class FastBot:
 
     async def _network_probe_loop(self) -> None:
         try:
-            await asyncio.to_thread(self.http_probe.measure_ms)
+            await asyncio.to_thread(self.http_probe.measure, time.perf_counter())
         except Exception as exc:  # noqa: BLE001
             self.event("warning", f"CLOB probe warmup failed: {type(exc).__name__}")
         while True:
             try:
-                elapsed = await asyncio.to_thread(self.http_probe.measure_ms)
-                self.clob_http.add(elapsed)
+                sample = await asyncio.to_thread(self.http_probe.measure, time.perf_counter())
+                self.clob_http.add(sample["total_ms"])
+                self.clob_http_queue_wait.add(sample["queue_wait_ms"])
+                self.clob_http_socket_ttfb.add(sample["socket_ttfb_ms"])
+                self.clob_http_body_read.add(sample["body_read_ms"])
             except Exception as exc:  # noqa: BLE001
                 self.event("warning", f"CLOB probe failed: {type(exc).__name__}")
             await asyncio.sleep(float(self.cfg.feeds.get("http_probe_seconds", 5)))
@@ -1313,6 +1335,11 @@ class FastBot:
             runtime = {
                 "network": {
                     "clob_http": http,
+                    "clob_http_breakdown": {
+                        "queue_wait": self.clob_http_queue_wait.state(),
+                        "socket_ttfb": self.clob_http_socket_ttfb.state(),
+                        "body_read": self.clob_http_body_read.state(),
+                    },
                     "decision_compute": compute,
                     "event_loop_lag": loop_lag,
                     "platform_taker_delay_ms": (
@@ -1420,6 +1447,11 @@ class FastBot:
             "decision": decision.to_dict(),
             "network": {
                 "clob_http": http,
+                "clob_http_breakdown": {
+                    "queue_wait": self.clob_http_queue_wait.state(),
+                    "socket_ttfb": self.clob_http_socket_ttfb.state(),
+                    "body_read": self.clob_http_body_read.state(),
+                },
                 "decision_compute": compute,
                 "event_loop_lag": loop_lag,
                 "platform_taker_delay_ms": taker_delay,

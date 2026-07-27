@@ -547,3 +547,61 @@ IPv6 `/book` 对照：
 - 收益证据：**未达标**；3894 笔费用、滑点和延迟后 ROI `-4.8614%`，每笔 P&L 95% CI 完全低于 0；冻结 holdout 仍仅 6 笔/56.540h 且永久锁定。
 - 最新可验证教训：20 分钟、每路 240 样本排除了连接年龄单调退化和重建作为主 HTTP P95 约翻倍的充分解释；公网仍有罕见 2 秒 TTFB，但主探针的较高频 158ms 尾部必须先拆分主进程 worker 排队与 socket TTFB。
 - 下一轮唯一优先项：保持现有 `clob_http` 240 样本 P95 原值、连接、路由、服务和 freshness 不变，只增加低开销诊断字段，分别记录 coroutine 提交到 worker 开始的排队等待以及 worker 内 socket TTFB/响应读取；覆盖完整 240 样本后再判断共享默认 executor 是否是可控浪费。
+
+## 2026-07-27 14:56 JST（2026-07-27 05:56 UTC）
+
+### 运行、安全与收益
+
+- 本轮完整读取自动化记忆、`AGENTS.md`、`README.md`、`HANDOFF.md` 和 `FAST_MARKET_MEMORY.md`；基线 `main...origin/main` 且工作区干净。读取 `deploy/pi.env` 仅用于核对既有 SSH 坐标，没有输出或提交其内容；其中密钥路径仍是旧电脑值，部署时临时旁置并注入 AGENTS workstation override，结束后原文件逐字节保留在原位。
+- 05:20 UTC 改动前完整 240 样本快照：`ready=true`、`mode=SHADOW`、4/4 execution engines、16 lanes、0 pending、0 positions，state age `0.194–0.914s`。HTTP P50/P95/max 为 BTC `74.91/91.17/239.30ms`、ETH `74.77/81.78/160.90ms`、SOL `39.20/82.19/160.61ms`、XRP `39.43/81.57/318.00ms`；decision P95 `0.06–0.10ms`，event-loop P95 `142.04–142.05ms`，可控路径 P95 `223.67–233.31ms`。官方 delay 全部 `0ms verified`，RTDS/market reconnect 全部 `0/0`。
+- 05:54 UTC 直接以 SQLite `mode=ro` 读取四个 observer 账本：4141 settled / 2443 wins，P&L `-$1,055.493897`，fees `$517.684037`，slippage `$30.760985`，cost `$19,555.432797`，accuracy `58.9954%`，ROI `-5.3974%`，Brier `0.237787`；每笔平均 P&L 的普通近似 95% CI `[-$0.372546,-$0.137232]`。
+- 与上一轮 3894 settled 的直接 SQL 快照相比：`+247` 笔，累计净 P&L 再降 `$162.395273`，fees 增 `$27.804761`、slippage 增 `$1.054937`，ROI `-4.8614% → -5.3974%`。累计净收益和每笔 P&L 区间仍完全为负，不支持推广。
+- champion 保持 12/12 settled、3 wins、P&L `-$22.209811`、fees `$1.602610`、slippage `$0.338621`、equity `$7.790189`、ROI `-56.8945%`，`portfolio_incident_latched` 未动。
+- `favorite-price-holdout-v1` 保持冻结且永久 `HALTED`：6/6 settled、3 wins、P&L `-$6.512921`、fees `$0.521856`、slippage `$0.050034`、equity `$23.487079`、ROI `-27.3899%`，运行约 `62.689h`，promotion `eligible=false`。仍只有 6/500 笔和 62.689/336 小时，规则、账本与事故锁未改。
+
+05:54 UTC 的 4141 笔官方结算切片：
+
+| intended ask | n | accuracy | 净 P&L | ROI | Brier |
+|---|---:|---:|---:|---:|---:|
+| 0.0–0.4 | 47 | 29.7872% | -$16.271126 | -8.2454% | 0.292226 |
+| 0.4–0.6 | 1922 | 47.2425% | -$785.463197 | -8.7933% | 0.267055 |
+| 0.6–0.8 | 1685 | 66.4095% | -$184.535577 | -2.2909% | 0.227706 |
+| 0.8–1.0 | 487 | 82.5462% | -$69.223997 | -2.9205% | 0.151900 |
+
+- 方向：UP n=1977、accuracy `59.4335%`、P&L `-$439.058006`、ROI `-4.6983%`、Brier `0.235475`，每笔 P&L CI `[-$0.392260,-$0.051906]`；DOWN n=2164、accuracy `58.5952%`、P&L `-$616.435890`、ROI `-6.0373%`、Brier `0.239898`，每笔 P&L CI `[-$0.447735,-$0.121984]`。
+- selected probability 校准：`0.55–0.60` accuracy/ROI `41.9214%/-12.7191%`；`0.60–0.70` `52.6987%/-5.2785%`；`0.70–0.80` `64.7727%/-2.4732%`；`0.80–0.90` `76.5273%/-0.7281%`；`0.90–1.00` `84.0532%/-3.5423%`。全部点估计为负，不得据此回改冻结 holdout。
+- observer arrival latency P50/P95/max `636.922/2103.270/9951.273ms`；这是历史信号到模拟到达盘口延迟，不是当前 RTT。`<=100ms` n=101、ROI `+8.0291%`，但每笔 P&L 95% CI `[-$0.308512,+$1.091802]` 跨 0；`100–250ms`、`250–500ms`、`500–1000ms`、`>1000ms` ROI 分别为 `-8.7591%/-6.4591%/-3.5202%/-5.5413%`。
+
+### 唯一改动与完整 240 样本诊断
+
+- 代码核对先纠正了上一轮假设的口径：现有 `PersistentClobProbe.measure_ms()` 在 worker 内取得 `began`，所以 coroutine 到 worker 的 executor 排队从未计入 `clob_http`。因此排队不可能是主 `clob_http` 约 158ms 与 sidecar 约 81ms 差异的直接解释。
+- 本轮唯一小改动保持原 `clob_http` 的连接、IPv6 路由、`GET /time`、5 秒 cadence、240 样本窗口、worker 内计时起止和 percentile 算法不变，只旁路增加 `clob_http_breakdown.queue_wait`、`socket_ttfb`、`body_read` 三个同为 240 样本的窗口。未改策略、风控、freshness、状态原子语义、官方 delay、live mode 或任何账本。
+- 本地 40 项 Fast tests、前端 validator、13 个 Fast 模块 `py_compile` 和 `git diff --check` 通过。只用 `deploy/push.sh` 上传；部署前后本地/远端 `fastbot.py` SHA-256 一致。VPS 40 项 Fast tests 和 13 模块 `py_compile` 通过；VPS 没有 Node，前端 validator 保持本地运行。
+- 部署脚本只自动重启无状态 dashboard。主服务在两次连续 `0 pending / 0 position / champion WAIT / observer WAIT` 后手动重启；challenger 未重启。主 PID `170952`、dashboard PID `170646`、challenger PID `113705`，三服务均 `active/running`、`NRestarts=0`；重启后 warning journal 为空。
+- 05:33:50–05:53:57 UTC 经过 `1206.68s`，四路各积满 240 个新 HTTP 与 breakdown 样本。最终 state age `0.157–0.799s`，4/4 online、0 pending、0 positions、RTDS/market reconnect 全部 `0/0`。
+
+完整窗口如下：
+
+| asset | HTTP P50/P95/max ms | queue P50/P95/max ms | socket TTFB P50/P95/max ms | body P50/P95/max ms | loop P50/P95/max ms | decision P50/P95/max ms | path P95 ms |
+|---|---|---|---|---|---|---|---:|
+| BTC | 77.46 / 157.59 / 482.01 | 0.27 / 78.63 / 240.47 | 77.44 / 157.57 / 481.99 | 0.02 / 0.02 / 0.04 | 21.79 / 138.21 / 180.25 | 0.03 / 0.08 / 0.85 | 295.88 |
+| ETH | 77.83 / 157.30 / 319.93 | 0.23 / 77.49 / 278.58 | 77.82 / 157.27 / 319.92 | 0.02 / 0.02 / 0.05 | 22.07 / 136.85 / 180.25 | 0.03 / 0.07 / 0.11 | 294.22 |
+| SOL | 77.61 / 155.57 / 399.48 | 0.23 / 76.94 / 240.33 | 77.59 / 155.56 / 399.46 | 0.01 / 0.02 / 0.29 | 21.79 / 136.85 / 180.25 | 0.02 / 0.05 / 0.10 | 292.47 |
+| XRP | 77.00 / 95.61 / 321.48 | 0.18 / 76.82 / 239.86 | 76.98 / 95.60 / 321.46 | 0.02 / 0.02 / 0.05 | 21.78 / 136.85 / 180.25 | 0.02 / 0.05 / 0.26 | 232.51 |
+
+- `socket_ttfb` 与原 HTTP P95 相差最多 `0.03ms`，body-read P95 全部 `0.02ms`，所以 worker 内 HTTP 尾部几乎全部发生在 headers 到达前。BTC/ETH/SOL 的 TTFB P95 仍约 156–158ms，XRP 为 95.60ms；连接生命周期不是稳定统一常量。
+- queue-wait P50 仅 `0.18–0.27ms`，但 P95 `76.82–78.63ms`、max `239.86–278.58ms`，证明共享默认 executor 存在额外尾部等待。不过它是新单列的诊断，不在原 `clob_http` 或既定可控路径公式中；不能声称去掉 queue 就会把既定 P95 降到 100ms 以下。
+- 改动前后窗口处于不同自然时段且重启清空了新进程指标，不能把 `223.67–233.31ms` 与 `232.51–295.88ms` 当 A/B 性能结论。本轮没有为了漂亮数字缩短窗口或采用未满样本。
+
+### VPS 资源、失败与决定
+
+- 05:55 UTC 10 秒资源窗：主进程单核 CPU `70.70%`、challenger `0.90%`、dashboard `0%`；aggregate steal `47.82%`、iowait `1.66%`；MemAvailable `156,307,456B`，swap 使用 `78,278,656B / 1,073,737,728B`。这仍只是短窗，不满足连续 7 天付费升级门槛。
+- 一次远端 SHA 命令因 `cut` 引号展开失败，一次远端静态编译的 `find` 表达式因远端引号展开失败；均为只读验证命令，随后分别用 PowerShell 切分和明确 13 文件白名单成功重跑。首次安全窗口脚本误用 `Measure-Object -Property` script block，因 pending 未能证明为 0 而正确中止、没有重启；修正为显式求和后再次双重检查才重启。
+- 当前证据支持“默认 executor 的探针提交存在约 77ms P95 额外排队”，但不支持立即给四个进程各增专用线程：排队不属于既定 HTTP 指标，专用线程会增加 2 vCPU 机器的线程竞争，且尚无对 event-loop 或目标 P95 的可验证收益。本轮不做第二个改动。
+
+### 结论与下一轮唯一优先项
+
+- `P95<100ms`：**未达成**；完整 240 样本可控路径 P95 `232.51–295.88ms`，官方 delay 仍为单列 `0ms verified`。
+- 收益证据：**未达标**；4141 笔费用、滑点和延迟后 ROI `-5.3974%`，每笔 P&L 95% CI 完全低于 0；冻结 holdout 仍仅 6 笔/62.689h 且永久锁定。
+- 最新可验证教训：原 `clob_http` 从 worker 内开始计时，executor queue 没有混入；完整窗口同时量到 queue P95 约 77ms 与 worker 内 TTFB P95 约 96–158ms，body 可忽略。共享 executor 确有额外等待，但主 HTTP 尾部仍是独立问题，不能通过改指标或简单相减消失。
+- 下一轮唯一优先项：保持本轮诊断、原 240 样本指标、连接、路由和 freshness 不变，运行一个同时间窗的四路 IPv6 `/time` sidecar，并把其 TTFB 与主 worker TTFB、queue wait、event-loop 和 aggregate steal 对齐满 240 样本；只判断主 worker TTFB 与独立线程 TTFB 的差异是否随 VPS 调度同涨同落，不先改 executor 或购买机器。
