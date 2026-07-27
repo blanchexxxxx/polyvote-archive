@@ -605,3 +605,16 @@ IPv6 `/book` 对照：
 - 收益证据：**未达标**；4141 笔费用、滑点和延迟后 ROI `-5.3974%`，每笔 P&L 95% CI 完全低于 0；冻结 holdout 仍仅 6 笔/62.689h 且永久锁定。
 - 最新可验证教训：原 `clob_http` 从 worker 内开始计时，executor queue 没有混入；完整窗口同时量到 queue P95 约 77ms 与 worker 内 TTFB P95 约 96–158ms，body 可忽略。共享 executor 确有额外等待，但主 HTTP 尾部仍是独立问题，不能通过改指标或简单相减消失。
 - 下一轮唯一优先项：保持本轮诊断、原 240 样本指标、连接、路由和 freshness 不变，运行一个同时间窗的四路 IPv6 `/time` sidecar，并把其 TTFB 与主 worker TTFB、queue wait、event-loop 和 aggregate steal 对齐满 240 样本；只判断主 worker TTFB 与独立线程 TTFB 的差异是否随 VPS 调度同涨同落，不先改 executor 或购买机器。
+
+## 2026-07-27 18:10 JST（2026-07-27 09:10 UTC）
+
+### Dashboard freshness 假告警修正
+
+- 用户报告顶部经常显示“至少一个资产引擎超过 3 秒未更新”。本轮先只读复现：按浏览器 2 秒 cadence 并发采集 30 次，旧前端条件触发 11/30；但这 11 次全部由后端返回 4/4 online，聚合时每资产 `state_age_seconds` 仅 `0.08–1.68s`，没有真实引擎停更。
+- 根因是口径叠加：后端以 `now - bot.updated_at <= 3s` 严格判定 engine online，但顶层 `updated_at` 取四资产最旧时间戳；dashboard 聚合缓存为 2 秒，前端又在响应到达后用 `Date.now() - updated_at > 3.5s` 冒充 engine freshness。30 次响应耗时 P50/P95/max `1.41/1.90/2.54s`，到达时顶层时间戳年龄 P50/P95/max `3.12/4.00/4.27s`；另一次 277,847B 响应耗时 `3.30s`。缓存、最旧资产年龄和传输等待相加造成规律性假阳性。
+- 本轮唯一改动保留后端 3 秒 freshness，不放宽任何风险或数据门槛。`ENGINE STALE` 现在只依据后端 `online_bot_count` 和每资产 `bot.online`；`DASHBOARD DELAY` 独立依据 `generated_at` 超过 5 秒，明确说明引擎仍在线；请求失败单独显示 `DASHBOARD OFFLINE`。不再用浏览器收到时的顶层 `updated_at` 年龄判断引擎停更。
+- 前端 validator 新增语义约束：必须使用 `b.online===false` 与 `s.generated_at`，必须区分 `ENGINE STALE` / `DASHBOARD DELAY`，并禁止旧 `age>3.5` 口径回归。
+- 本地 40 项 Fast tests、前端 validator、13 模块 `py_compile` 和 diff check 通过。只使用 `deploy/push.sh` 上传，dashboard HTML 哈希与远端一致；VPS 40 项 Fast tests 和 13 模块 `py_compile` 通过。
+- 部署只重启无状态 dashboard（PID `172845`）；main PID `170952`、challenger PID `113705` 未重启。三服务均 `active/running`、`NRestarts=0`。
+- 部署后在实际应用内浏览器按 2 秒节奏连续观察 15 次，全部 `ONLINE 4/4` 且告警隐藏，即使多次复用相同 `UPDATED` 时间也未再误报；console 无 warning/error。真实 engine-stale 分支仍由后端严格 freshness 提供，未以提高阈值换取安静界面。
+- 本修正只改变告警语义，不影响主引擎、账本、延迟窗口、策略或 shadow/live 状态。延迟和收益结论沿用上一完整研究窗；下一轮唯一研究优先项不变。

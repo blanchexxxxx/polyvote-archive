@@ -6,7 +6,7 @@ Local workstation override (2026-07-24): use `C:\Users\<user>\.ssh\<ssh-key>.pem
 
 # Fast Market 工作记忆
 
-最后更新：2026-07-27 14:56 JST
+最后更新：2026-07-27 18:10 JST
 
 这份文件是当前快市场系统的唯一快速交接入口。旧 `HANDOFF.md` 主要描述已退休的慢市场，而且存在编码损坏；继续工作时先读本文件。
 
@@ -30,6 +30,7 @@ Local workstation override (2026-07-24): use `C:\Users\<user>\.ssh\<ssh-key>.pem
 - 2026-07-27 的双栈只读 sidecar 各使用四条独立 keep-alive 连接、每条 24 次请求：IPv4 96/96 成功且四路 warm P95 为 `80.52–81.34ms`；IPv6 96/96 成功，三路为 `80.48–80.75ms`、一路因单个 `157.47ms` 尖峰为 `98.18ms`。响应体读取 P95 均不超过约 `0.18ms`，延迟几乎全在 TTFB；首次 DNS/TCP/TLS 的墙钟阶段受并发调度影响，总建连为 `160.95–480.08ms`。主进程现有 CLOB/TLS socket 实际走 IPv6，短窗没有复现或解释 240 样本主窗口的资产分组，不能据此强制 IPv4 或改指标口径。
 - 2026-07-27 的完整 20 分钟只读 sidecar 完全匹配 IPv6 `/time`、四连接、5 秒 cadence 和每路 240 样本：960/960 成功、0 重连，连接年龄达到约 1201 秒；四路 warm P95 为 `80.68–81.43ms`，没有随连接年龄单调退化。ETH 有两次约 `2079ms` 的稀疏 TTFB 尖峰，但不足 5%，未抬高 P95；同窗主引擎 HTTP P95 多数约 `157–159ms`。连接老化、重建和响应体读取不能解释这个更高频差异；下一步必须在保持现有 P95 原值的同时，分开观测主探针提交到 worker 的排队等待与 socket TTFB。
 - 2026-07-27 已在不改变原 `clob_http` 口径的前提下完成四路各 240 样本的主探针拆分：原 HTTP 计时从 worker 内开始，executor queue 从未混入；queue-wait P95 `76.82–78.63ms`，worker 内 socket TTFB P95 `95.60–157.57ms`，body-read P95 全部 `0.02ms`。共享 executor 确有额外尾部等待，但它不解释原 HTTP 与 sidecar 的差异，也不能从既定路径 P95 中直接相减。
+- 2026-07-27 修正 dashboard freshness 假告警：后端 3 秒 engine freshness 保持不变；`ENGINE STALE` 只信任后端 `bot.online`，缓存/隧道造成的聚合延迟改用 `generated_at` 单列为 `DASHBOARD DELAY`。旧逻辑在 30 次采样中误报 11 次且每次仍为 4/4 online；部署后浏览器连续 15 次观察为 0 次误报。
 
 ## 运行位置与访问
 
@@ -138,6 +139,7 @@ journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 - 2026-07-26 以 166 个五秒样本覆盖三个自然五分钟边界；切换后尖峰不一致，不能把 market activation 当作充分根因。HTTP P95 出现 `~81–85ms` 与 `~157–158ms` 分组；本地 39 项 Fast 测试、前端 validator 和 13 个 Fast 模块静态编译通过，本轮未改运行代码、未部署、未重启。
 - 2026-07-27 以四路 IPv6 `/time` keep-alive 完成 20 分钟、每路 240 样本的只读长窗；960/960 成功、0 重连，连接年龄桶没有单调恶化。sidecar P95 约 `81ms`，同窗主探针约 `158ms`，尚未证明差异来自默认线程池排队，因此本轮不改代码、路由、服务或指标。
 - 2026-07-27 增加主探针 queue/TTFB/body 旁路诊断并部署，原 HTTP 指标不变；四路满 240 样本后 queue P95 约 `77ms`、TTFB P95 `96–158ms`、body P95 `0.02ms`。本地与 VPS 各 40 项 Fast tests、13 模块静态编译及本地前端 validator 通过；主服务仅在两次 0 pending/position 且 champion+observer WAIT 后重启，challenger 未重启。
+- 2026-07-27 将 engine stale、dashboard snapshot delay 和 request failure 拆成三个真实告警；本地/VPS 各 40 项 Fast tests、静态编译及本地前端 validator 通过。只重启 dashboard，主引擎和 challenger 未重启；实际浏览器 15 个两秒样本均 4/4 online、0 假告警、console 干净。
 
 ## 重要口径
 
