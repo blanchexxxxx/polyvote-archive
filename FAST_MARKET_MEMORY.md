@@ -1,6 +1,6 @@
 # Fast Market 工作记忆
 
-最后更新：2026-07-27 18:10 JST
+最后更新：2026-07-27 20:47 JST
 
 这份文件是当前快市场系统的唯一快速交接入口。旧 `HANDOFF.md` 主要描述已退休的慢市场，而且存在编码损坏；继续工作时先读本文件。
 
@@ -14,8 +14,8 @@
 - observer 的早期正收益已被大样本证伪：从 217 笔时的 `+$27.69961` 变成约 2239 笔时的 `-$341.90`。高胜率没有转化为正期望。
 - 独立 `$30` 有限现金实验 `favorite-price-holdout-v1` 已于 `2026-07-24T15:12:32Z` 冻结并启动。它只跟随该时间之后的 observer 到达盘口记录，额外规则只有 `intended ask >= 0.60`；这是待验证的事后假设，不是策略升级。
 - `favorite-price-holdout-v1` 在 6 笔官方结算后净亏 `$6.512921`，已触发自身 `challenger_portfolio_daily_loss_gate` 并永久 `HALTED`；不得解除或重置。它未达到 500 笔/336 小时门槛。
-- 2026-07-27 14:54 JST 的完整 240 样本窗口可控路径 P95 为 `232.51–295.88ms`；HTTP P95 `95.61–157.59ms`、event-loop P95 `136.85–138.21ms`、decision P95 `0.05–0.08ms`，仍未达到 `<100ms`。
-- observer 在 4141 笔官方结算的只读 SQL 快照中，费用、滑点和延迟后 ROI `-5.3974%`，每笔 P&L 95% CI `[-$0.372546,-$0.137232]`；累计净 P&L 和置信区间仍为负，不支持推广。
+- 2026-07-27 20:44 JST 的完整同窗中，各时点可控路径滑动 P95 中位数为 `297.71–300.95ms`，窗口末为 `298.29–301.53ms`；窗口末 HTTP P95 `157.03–160.25ms`、event-loop P95 `141.20–141.22ms`、decision P95 `0.05–0.10ms`，仍未达到 `<100ms`。
+- observer 在 4335 笔官方结算的只读 SQL 快照中，费用、滑点和延迟后 ROI `-5.4921%`，每笔 P&L 95% CI `[-$0.374450,-$0.144435]`；累计净 P&L 和置信区间仍为负，不支持推广。
 - 去除 champion SQLite 的无变化 window/account 刷新后，四库修改频率短窗约降 `87.5%`、主进程单核 CPU 约降 `20.2%`，但 process write_bytes 仅降约 `10.7%`；四份每秒原子状态 JSON 及文件系统元数据放大成为主要剩余写入。
 - 同盘受控基线进一步修正了写入口径：三次各 20 次原子替换的 gross `write_bytes / payload` 均约 `1.089×`，不是主进程同窗的 `5.45×`；主进程 `write_bytes=5,922,816B` 同时有 `cancelled_write_bytes=4,866,048B`，净记账 `1,056,768B` 约为状态载荷 `1,086,735B` 的 `0.97×`。不得把 gross `write_bytes` 单独称为物理写入，也没有证据支持为此迁移 tmpfs 或放弃原子读取语义。
 - 2026-07-26 两段低开销配对窗口中，main gross 写入约 `81–83%` 被 `cancelled_write_bytes` 抵消；取消比例在 event-loop P95 约 `59–62ms` 和约 `306–324ms` 的窗口相近，安静段写入速率反而更高。observer SQLite、decision JSONL、review bundle 均未变化；当前证据不支持把 gross 或取消写记账当成尾延迟根因。
@@ -25,6 +25,7 @@
 - 2026-07-27 的完整 20 分钟只读 sidecar 完全匹配 IPv6 `/time`、四连接、5 秒 cadence 和每路 240 样本：960/960 成功、0 重连，连接年龄达到约 1201 秒；四路 warm P95 为 `80.68–81.43ms`，没有随连接年龄单调退化。ETH 有两次约 `2079ms` 的稀疏 TTFB 尖峰，但不足 5%，未抬高 P95；同窗主引擎 HTTP P95 多数约 `157–159ms`。连接老化、重建和响应体读取不能解释这个更高频差异；下一步必须在保持现有 P95 原值的同时，分开观测主探针提交到 worker 的排队等待与 socket TTFB。
 - 2026-07-27 已在不改变原 `clob_http` 口径的前提下完成四路各 240 样本的主探针拆分：原 HTTP 计时从 worker 内开始，executor queue 从未混入；queue-wait P95 `76.82–78.63ms`，worker 内 socket TTFB P95 `95.60–157.57ms`，body-read P95 全部 `0.02ms`。共享 executor 确有额外尾部等待，但它不解释原 HTTP 与 sidecar 的差异，也不能从既定路径 P95 中直接相减。
 - 2026-07-27 修正 dashboard freshness 假告警：后端 3 秒 engine freshness 保持不变；`ENGINE STALE` 只信任后端 `bot.online`，缓存/隧道造成的聚合延迟改用 `generated_at` 单列为 `DASHBOARD DELAY`。旧逻辑在 30 次采样中误报 11 次且每次仍为 4/4 online；部署后浏览器连续 15 次观察为 0 次误报。
+- 2026-07-27 的主探针/四连接 IPv6 sidecar/VPS 调度同窗各含 240 样本：sidecar 960/960 成功、0 重连，TTFB P50/P95 为约 `78/82ms`；主探针 HTTP P50 同为约 `78ms`，但约 `158ms` 次级模式在主侧进入 P95、在 sidecar 只到 P99。主侧差值中位数在 steal 低/高四分位均约 `79–81ms`，没有随 aggregate steal 同涨同落；基础路径相同，差别在次级模式出现频率，当前证据不支持改 executor、强制 IPv4 或付费扩容。
 
 ## 运行位置与访问
 
@@ -48,13 +49,13 @@ journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 
 ## 当前运行快照
 
-快照时间：2026-07-27 05:54 UTC
+快照时间：2026-07-27 11:45 UTC
 
 - API `ready: true`
 - 资产执行引擎：4/4 在线（BTC、ETH、SOL、XRP）
 - 逻辑信号通道：16（每资产 4 条）
-- observer fills / settled：约 `4145 / 4141`
-- observer normalized P&L：约 `-$1,055.49`
+- observer fills / settled：约 `4351 / 4347`
+- observer normalized P&L：约 `-$1,131.61`
 - observer accuracy：约 `59.0%`
 - champion equity：`$7.790189`
 - champion halt：`portfolio_incident_latched`
@@ -134,6 +135,7 @@ journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 - 2026-07-27 以四路 IPv6 `/time` keep-alive 完成 20 分钟、每路 240 样本的只读长窗；960/960 成功、0 重连，连接年龄桶没有单调恶化。sidecar P95 约 `81ms`，同窗主探针约 `158ms`，尚未证明差异来自默认线程池排队，因此本轮不改代码、路由、服务或指标。
 - 2026-07-27 增加主探针 queue/TTFB/body 旁路诊断并部署，原 HTTP 指标不变；四路满 240 样本后 queue P95 约 `77ms`、TTFB P95 `96–158ms`、body P95 `0.02ms`。本地与 VPS 各 40 项 Fast tests、13 模块静态编译及本地前端 validator 通过；主服务仅在两次 0 pending/position 且 champion+observer WAIT 后重启，challenger 未重启。
 - 2026-07-27 将 engine stale、dashboard snapshot delay 和 request failure 拆成三个真实告警；本地/VPS 各 40 项 Fast tests、静态编译及本地前端 validator 通过。只重启 dashboard，主引擎和 challenger 未重启；实际浏览器 15 个两秒样本均 4/4 online、0 假告警、console 干净。
+- 2026-07-27 完成主探针、四连接 IPv6 sidecar 与 aggregate steal 的 20 分钟同窗：960/960 sidecar 和 240/240 API 样本成功，三服务 PID/restart count 不变。主/sidecar warm P50 相同但约 158ms 次级模式频率不同，且差值不随 steal 四分位扩大；本地 40 项 Fast tests、前端 validator 和 13 模块静态编译通过，本轮未改运行代码、未部署、未重启。
 
 ## 重要口径
 
@@ -149,7 +151,7 @@ journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 1. 保持 `favorite-price-holdout-v1` 参数冻结，收集至少 500 笔官方结算和 336 小时运行；不得因中途盈亏改规则或重置账本。
 2. 把概率校准误差、价格区间和方向差异作为下一批并行 challenger 假设，不得回头过滤本次 holdout。
 3. 把四条策略通道分别建立独立账本；在此之前不要把 16 lanes 描述成 16 个已交易 bot。
-4. 保持主进程、状态 writer、1 秒 freshness、原子读取语义、本轮诊断和现有 240 样本 P95 原值不变；下一轮运行同时间窗的四路 IPv6 `/time` sidecar，把其 TTFB 与主 worker TTFB、queue wait、event-loop 和 aggregate steal 对齐满 240 样本，判断独立线程与主 worker 的 TTFB 差异是否随 VPS 调度同涨同落。不得先改 executor、用 sidecar 替换主指标或强制 IPv4。
+4. 保持主进程、状态 writer、1 秒 freshness、原子读取语义和现有指标不变；下一轮只增加主探针提交/完成单调时间与 TTFB 分桶计数诊断，积满 240 样本后让四连接 IPv6 `/time` sidecar 分别对齐主探针相位与错开约半个 cadence，检验约 158ms 次级模式是否来自四路同步突发/相位。不得先改 executor、用 sidecar 替换主指标、强制 IPv4 或购买机器。
 5. 若接入 CVD/清算，使用一个共享 Binance Futures collector，再广播给四资产引擎；不要每个策略重复开连接。
 
 ## 安全边界
