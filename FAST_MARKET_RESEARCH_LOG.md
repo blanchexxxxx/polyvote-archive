@@ -666,3 +666,641 @@ IPv6 `/book` 对照：
 - 收益证据：**未达标**；4335 笔费用、滑点和延迟后 ROI `-5.4921%`，每笔 P&L 95% CI 完全低于 0；冻结 holdout 仍仅 6 笔/68.549h 且永久锁定。
 - 最新可验证教训：主与 sidecar 的 warm P50 同为约 78ms、约 158ms 次级模式也共同存在，但主侧出现频率更高而进入 P95；这个频率差没有随 aggregate steal 同涨同落。当前证据支持继续拆相位/突发同步，不支持改 executor、强制 IPv4、改窗口或付费扩容。
 - 下一轮唯一优先项：保持所有原指标和服务行为不变，只增加低开销的主探针提交/完成单调时间与 TTFB 分桶计数诊断；积满 240 样本后，用同一四连接 IPv6 sidecar 分别对齐主探针相位与错开约半个 cadence，检验约 158ms 次级模式是否来自四路同步突发/相位，而不是先改 executor 或机器。
+
+## 2026-07-28 09:35 JST（运行快照 2026-07-27 23:22–23:24 UTC）
+
+### 运行、安全与可控路径
+
+- 本轮完整读取自动化记忆、`AGENTS.md`、`README.md`、`HANDOFF.md` 和 `FAST_MARKET_MEMORY.md`；`deploy/pi.env` 仅只读确认变量存在，未输出值。基线分支为 `main...origin/main`，但 `fastbot.py` 和 `tests/test_fastbot.py` 已有归属不明的未提交改动，内容正是上一轮计划的主探针单调时间与 TTFB 分桶诊断。两文件作为用户工作保留，未覆盖、未暂存、未提交、未部署。
+- 23:22:43 UTC 聚合 API：`ready=true`、`mode=SHADOW`、4/4 execution engines、16 lanes、0 pending、0 champion positions，四引擎 state age `0.160–2.398s`。champion 仍为 12/12 settled、3 wins、P&L `-$22.209811`、fees `$1.602610`、slippage `$0.338621`、equity `$7.790189`、ROI `-56.8945%`，`portfolio_incident_latched` 未动。
+- 三个 systemd user services 均为 `active/running`、`NRestarts=0`，PIDs 仍为 main `170952`、challenger `113705`、dashboard `172845`；自上一完整研究窗后的 warning journal 均为 0。RTDS/market reconnect 四路全为 `0/0`，官方 platform delay 四路全为单列 `0ms verified`。
+
+完整 240 样本快照：
+
+| asset | HTTP P50/P95/max ms | queue P50/P95/max ms | socket TTFB P50/P95/max ms | body P95/max ms | event-loop P50/P95/max ms | decision P95/max ms | path/ACK floor P95 ms |
+|---|---|---|---|---|---|---|---:|
+| BTC | 77.29 / 155.60 / 319.88 | 0.29 / 77.64 / 162.96 | 77.28 / 155.58 / 319.87 | 0.02 / 0.10 | 58.69 / 299.50 / 721.77 | 0.11 / 76.68 | 455.21 |
+| ETH | 77.83 / 159.16 / 259.31 | 0.34 / 77.18 / 163.60 | 77.82 / 159.12 / 259.30 | 0.02 / 79.26 | 58.49 / 301.63 / 721.76 | 0.12 / 108.59 | 460.91 |
+| SOL | 77.41 / 155.81 / 255.69 | 0.23 / 77.30 / 156.82 | 77.39 / 155.79 / 255.68 | 0.03 / 0.94 | 59.80 / 301.66 / 721.78 | 0.07 / 77.55 | 457.54 |
+| XRP | 77.57 / 157.38 / 315.95 | 0.33 / 77.07 / 158.32 | 77.55 / 157.10 / 315.94 | 0.02 / 77.57 | 58.65 / 299.50 / 721.77 | 0.08 / 107.72 | 456.96 |
+
+- `P95<100ms` 仍未达成；当前可控路径 P95 `455.21–460.91ms`，比上一同窗结束的 `298.29–301.53ms` 高约 `157–163ms`。HTTP 与 decision P95 仍接近上一窗口，差异主要是 event-loop P95 从约 `141ms` 升至约 `300ms`。没有缩短窗口、重启清空指标或改变口径。
+- 随后的 10 秒资源窗：main/challenger/dashboard 单核 CPU `55.90/0.70/0.00%`，aggregate steal `41.69%`、iowait `1.12%`，MemAvailable `137,412,608B`，swap 使用 `133,517,312B / 1,073,737,728B`。当前 event-loop 更差而这个短窗 steal 比上一结束短窗的 `49.67%` 更低；采样时窗和统计尺度不同，只能说明一次短 steal 读数仍不是 event-loop 尾部的充分解释，不能作反向因果或付费升级依据。
+- 没有再次运行 IPv4 warm probe：主服务已确认走 IPv6，上一双栈和完整 IPv6 sidecar 已排除稳定 IPv4 优势；本轮的待验证问题是主探针相位/同步突发，重复 IPv4 短窗不会回答该问题。
+
+### Observer、champion 与冻结 challenger
+
+- 23:24:52 UTC 直接以 SQLite `mode=ro` 读取四个 observer 账本：4770 settled / 2830 wins，净 P&L `-$1,191.688740`，fees `$592.624809`，slippage `$36.448951`，cost `$22,556.983140`，accuracy `59.3291%`（Wilson 95% CI `[57.9281%,60.7151%]`），ROI `-5.2830%`，Brier `0.237864`；每笔平均 P&L `-$0.249830`，普通近似 95% CI `[-$0.358980,-$0.140680]`。
+- 与上一轮 4335 settled 的直接 SQL 快照相比：`+435` 笔，累计净 P&L 再降 `$67.004887`，fees 增 `$50.938792`、slippage 增 `$3.688859`、cost 增 `$2,078.657987`；ROI 从 `-5.4921%` 略回升到 `-5.2830%`，但累计收益与每笔 P&L CI 仍完全为负。不能把负 ROI 的小幅回升称为正期望。
+
+价格区间：
+
+| intended ask | n | accuracy | 净 P&L | ROI | Brier |
+|---|---:|---:|---:|---:|---:|
+| 0.0–0.4 | 47 | 29.7872% | -$16.271126 | -8.2454% | 0.292226 |
+| 0.4–0.6 | 2160 | 47.6852% | -$827.552537 | -8.2310% | 0.265849 |
+| 0.6–0.8 | 1998 | 66.1161% | -$256.627847 | -2.6861% | 0.230219 |
+| 0.8–1.0 | 565 | 82.3009% | -$91.237231 | -3.3157% | 0.153394 |
+
+- 方向：UP n=2269、accuracy `58.8806%`、P&L `-$632.961927`、ROI `-5.8935%`、Brier `0.240560`，每笔 P&L CI `[-$0.437772,-$0.120150]`；DOWN n=2501、accuracy `59.7361%`、P&L `-$558.726813`、ROI `-4.7282%`、Brier `0.235419`，每笔 P&L CI `[-$0.373685,-$0.073118]`。
+- selected-probability 校准：`0.55–0.60` accuracy/ROI `42.4901%/-11.7593%`；`0.60–0.70` `52.8534%/-5.4822%`；`0.70–0.80` `65.6415%/-1.3099%`；`0.80–0.90` `74.3484%/-3.5835%`；`0.90–1.00` `84.8138%/-2.7990%`。所有标准概率桶的 ROI 点估计仍为负，不得据此回改冻结规则。
+- observer arrival latency P50/P95/max `639.372/2160.840/9951.273ms`；这是历史信号到模拟到达盘口延迟，不是当前 RTT。`<=100ms` n=106、ROI `+5.4652%`，但每笔 P&L CI `[-$0.422847,+$0.956290]` 跨 0；`100–250ms`、`250–500ms`、`500–1000ms`、`>1000ms` ROI 分别为 `-8.7798%/-7.2394%/-2.7204%/-5.0790%`。
+- champion 的只读直连统计仍为 12 fills / 12 settled、3 wins，latency P50/P95/max `40.423/59.633/73.991ms`。冻结 `favorite-price-holdout-v1` 仍为 6 fills / 6 settled、3 wins、P&L `-$6.512921`、fees `$0.521856`、slippage `$0.050034`、equity `$23.487079`、ROI `-27.3899%`，latency P50/P95/max `721.601/7479.022/9438.540ms`；运行约 `80.168h`，promotion `eligible=false`，事故锁仍为 `challenger_portfolio_daily_loss_gate`。没有重置、解锁或回调规则。
+
+### 本地未提交诊断、验证、失败与决定
+
+- 既有工作区改动新增 `ProbeTimingDiagnostics`：保存最新 submitted/worker-started/worker-completed/coroutine-completed `perf_counter` 时间，并为最近 240 个 socket TTFB 样本维护 `<100 / 100–140 / 140–180 / 180–500 / >=500ms` 滑动计数；原 `clob_http`、breakdown、连接、cadence 和指标公式不变。从代码形态看，它与上一轮唯一优先项一致，但本轮无法确认改动归属，因此不把它当作自动化自行完成的修改。
+- 本机全量 Fast discover 两次均因环境缺 `aiohttp` / `PyYAML` 使 `test_fastbot`、`test_fastchallenger`、`test_fastmulti` 三个模块无法导入；其余 31 项通过。Codex bundled Python 同样缺这两个包。一次尝试把依赖安装到已验证的系统临时目录被执行策略拒绝，未创建项目改动。随后直接从 `fastbot.py` AST 隔离执行 `ProbeTimingDiagnostics`，滑动淘汰和全部桶边界检查通过；前端 validator、13 个 Fast 模块 `py_compile` 与 `git diff --check` 通过。
+- 因工作区含归属不明的运行代码改动且完整 Fast suite 尚未成功，本轮不提交、不推送、不调用 `deploy/push.sh`，也不重启任何服务。研究日志和同步工作记忆是本轮唯一文件修改，并与用户两份运行代码改动分开保留。
+
+### 结论与下一轮唯一优先项
+
+- `P95<100ms`：**未达成**；完整窗口路径 P95 `455.21–460.91ms`，恶化主要在 event-loop P95，官方 delay 继续单列。
+- 收益证据：**未达标**；4770 笔费用、滑点和延迟后 ROI `-5.2830%`，每笔 P&L 95% CI 完全低于 0；冻结 holdout 仍仅 6 笔/80.168h 且永久锁定。
+- 最新可验证教训：HTTP 基础与约 158ms 模式仍在，event-loop 尾部可在服务 PID、重启数和短窗 steal 没同步恶化时大幅变化；短资源窗不能解释尾部。当前 timing/bucket 诊断设计能覆盖下一假设，但在归属不明和完整测试未通过前不得部署。
+- 下一轮唯一优先项：先确认并完成当前 `fastbot.py` / `tests/test_fastbot.py` timing/bucket 改动的完整 Fast 测试与干净提交；只有工作区归属明确后才部署并积满 240 样本，再运行四连接 IPv6 `/time` sidecar 的同相与半 cadence 错相对照。不得先改 executor、强制 IPv4、改变指标口径或购买机器。
+
+## 2026-07-28 14:27 JST（运行快照 2026-07-28 05:21–05:26 UTC）
+
+### 运行、安全与工作区
+
+- 本轮完整读取自动化记忆、`AGENTS.md`、`README.md`、`HANDOFF.md` 和 `FAST_MARKET_MEMORY.md`；`deploy/pi.env` 只读取变量名，未输出或改动值。分支仍为 `main...origin/main`，工作区已有上一轮自动化留下的 `AGENTS.md`、`FAST_MARKET_MEMORY.md`、`FAST_MARKET_RESEARCH_LOG.md` 文档改动，以及归属仍不明的 `fastbot.py` / `tests/test_fastbot.py` timing/bucket 改动。所有既有改动均保留，未暂存、提交、推送或部署。
+- 05:24 UTC 聚合 API 为 `ready=true`、`mode=SHADOW`、4/4 execution engines、16 lanes、0 pending、0 champion positions；四引擎 state age `0.046–0.893s`。随后 12 个约五秒快照持续 4/4 online，state age 最大 `1.013s`。
+- 三个 systemd user services 仍为 `active/running`、`NRestarts=0`，PIDs 与上一轮相同：main `170952`、challenger `113705`、dashboard `172845`；各自最近 100 条 warning journal 均为空。没有重启、部署、路由、配置、账本、风控或云资源变更。
+- champion 保持 12/12 settled、3 wins、P&L `-$22.209811`、fees `$1.602611`、slippage `$0.338621`、equity `$7.790189`、ROI `-56.8945%`，latency P50/P95/max `40.423/59.633/73.991ms`；`portfolio_incident_latched` 未动。
+- `favorite-price-holdout-v1` 保持冻结且永久 `HALTED`：6/6 settled、3 wins、P&L `-$6.512921`、fees `$0.521856`、slippage `$0.050034`、equity `$23.487079`、ROI `-27.3899%`，latency P50/P95/max `721.601/7479.022/9438.540ms`。运行约 `86.198h`，仍仅 6/500 笔和 86.198/336 小时，`eligible=false`；未重置、解锁或修改规则。
+
+### 当前完整 240 样本路径
+
+| asset | HTTP P50/P95/max ms | queue P95/max ms | socket TTFB P95/max ms | body P95/max ms | event-loop P50/P95/max ms | decision P95/max ms | path/ACK floor P95 ms |
+|---|---|---|---|---|---|---|---:|
+| BTC | 40.27 / 81.29 / 176.29 | 40.54 / 159.28 | 81.28 / 176.27 | 0.02 / 0.04 | 0.80 / 1.72 / 2.26 | 0.06 / 0.14 | 83.07 |
+| ETH | 37.58 / 81.32 / 237.69 | 74.78 / 156.68 | 81.30 / 237.68 | 0.02 / 56.57 | 0.79 / 1.70 / 2.24 | 0.07 / 0.11 | 83.09 |
+| SOL | 39.19 / 81.93 / 160.92 | 74.97 / 81.03 | 81.91 / 160.91 | 0.02 / 0.12 | 0.81 / 1.73 / 2.26 | 0.08 / 0.16 | 83.74 |
+| XRP | 39.19 / 86.96 / 239.39 | 74.64 / 79.55 | 86.94 / 239.36 | 0.03 / 0.09 | 0.80 / 1.62 / 2.26 | 0.07 / 0.12 | 88.65 |
+
+- 当前完整 240 样本可控路径四路均低于 100ms，官方 platform delay 继续单列为 `0ms verified`，RTDS/market reconnect 仍为 `0/0`。随后一分钟的 12 个滑动快照路径范围持续为 `82.77–88.86ms`，没有通过缩短窗口、重启或改指标取得。
+- 与约六小时前同 PID、零重启的 `455.21–460.91ms` 完整窗口相比，当前路径低约 `368–378ms`。HTTP P95 从 `155.60–159.16ms` 降至 `81.29–86.96ms`，event-loop P95 从 `299.50–301.66ms` 降至 `1.62–1.73ms`；decision 仍可忽略。现有 `$5/月` 机器因此已实证可达到目标，但同一天的巨大跨时段波动说明还不能称为“稳定压到 100ms 以下”。
+- 05:23 UTC 同步 10 秒资源窗：main/challenger/dashboard 单核 CPU `4.80/0.10/0.00%`，aggregate steal `0.05%`、iowait `0.30%`，MemAvailable `141,115,392B`，swap 使用 `125,280,256B / 1,073,737,728B`，load average `0.14/0.29/0.33`。它与当前低尾延迟同相，但指标窗口是 20 分钟、资源只取末端 10 秒；只能记录阶段关联，不能证明 steal 是唯一因果。
+- 本轮不重复 IPv4 warm probe：主服务走 IPv6，且上一轮双栈/长窗已排除稳定 IPv4 优势；当前问题是跨时段稳定性，IPv4 短探针不会回答它。
+
+### Observer 收益、校准与延迟
+
+- 05:24 UTC 直接以 SQLite `mode=ro` 读取四个 observer 账本：5013 fills / 5009 settled、2979 wins，净 P&L `-$1,237.322287`，fees `$620.872185`，slippage `$37.931726`，cost `$23,699.880087`，accuracy `59.4729%`，ROI `-5.2208%`，Brier `0.237371`；每笔平均 P&L `-$0.247020`，普通近似 95% CI `[-$0.353362,-$0.140678]`。
+- 与上一轮 4770 settled 的直接 SQL 快照相比：`+239` 笔，累计净 P&L 再降 `$45.633547`，fees 增 `$28.247376`、slippage 增 `$1.482775`、cost 增 `$1,142.896947`。ROI 从 `-5.2830%` 略回升到 `-5.2208%`，Brier 从 `0.237864` 略降到 `0.237371`，但净收益和每笔 P&L CI 仍明确为负。
+
+价格区间：
+
+| intended ask | n | accuracy | 净 P&L | ROI | Brier |
+|---|---:|---:|---:|---:|---:|
+| <0.40 | 47 | 29.7872% | -$16.271126 | -8.2454% | 0.292226 |
+| 0.40–0.50 | 591 | 42.1320% | -$282.334194 | -10.3426% | 0.266099 |
+| 0.50–0.60 | 1661 | 49.8495% | -$560.850974 | -7.2290% | 0.265308 |
+| 0.60–0.70 | 1262 | 62.2821% | -$151.548065 | -2.5252% | 0.242718 |
+| >=0.70 | 1448 | 76.1050% | -$226.317927 | -3.2272% | 0.187159 |
+
+- 方向：UP n=2375、accuracy `59.0316%`、P&L `-$638.986055`、ROI `-5.6826%`、Brier `0.240014`；DOWN n=2634、accuracy `59.8709%`、P&L `-$598.336232`、ROI `-4.8039%`、Brier `0.234988`。两方向点估计均为负。
+- selected probability：`0.50–0.60` n=1042、ROI `-11.9419%`；`0.60–0.70` n=1623、ROI `-4.8394%`；`0.70–0.80` n=1206、ROI `-2.2913%`；`>=0.80` n=1138、ROI `-2.9227%`。所有标准概率桶仍为负，不得据此回改冻结 holdout。
+- observer arrival latency P50/P95/max `640.066/2161.954/9951.273ms`；这是历史信号到模拟到达盘口延迟，不是当前 RTT。`<=100ms` n=110、ROI `+4.8928%`，但每笔 P&L CI `[-$0.432094,+$0.909808]` 跨 0；`100–500ms` n=1942、ROI `-7.9001%`，其 CI 完全为负；其余 `500–1000/1000–2000/>2000ms` ROI 分别为 `-3.3969%/-3.2552%/-7.7962%`。
+
+### 验证、决定与下一轮唯一优先项
+
+- 发现项目 `.venv\Scripts\python.exe` 实际已包含 `PyYAML 6.0.3` 和 `aiohttp 3.14.3`；用它对当前精确工作区运行全量 Fast discover，41 项全部通过。前端 validator、13 个 Fast 模块 `py_compile` 与 `git diff --check` 也通过。上一轮“本机无法完整测试”的阻塞因此已消除，但两份运行代码改动的归属仍未解决。
+- 当前没有明确、可复现且低风险的软件问题值得修改。性能在零代码、零服务变更下自行进入完整达标窗口，贸然改 executor、路由、窗口、freshness 或机器会混淆稳定性研究。本轮只记录数据，不提交、推送、部署或重启。
+- `P95<100ms`：**当前完整 240 样本窗口已达成，但尚未证明稳定达成**；同一天另一个完整窗口仍为 `455–461ms`。
+- 收益证据：**未达标**；5009 笔费用、滑点和延迟后 ROI `-5.2208%`，每笔 P&L 95% CI 完全低于 0；冻结 holdout 仍仅 6 笔且永久锁定。
+- 最新可验证教训：同 PID、零重启、零代码变更下，完整路径可从 `455–461ms` 变为 `83–89ms`；现有套餐具备达到目标的物理能力，但阶段性 host/network 负载或相位仍造成巨大稳定性风险。当前低 steal/低 CPU 与低尾延迟同相，不足以单独证明因果，也不支持付费升级。
+- 下一轮唯一优先项：保持所有服务和指标不变，继续只读记录完整 240 样本窗口与同时间尺度资源数据，优先捕获下一次 `<100ms ↔ >100ms` 转换；在 `fastbot.py` / `tests/test_fastbot.py` 归属明确前不部署 timing/bucket 诊断。转换证据不足前不改 executor、强制 IPv4 或购买机器。
+
+## 2026-07-28 20:29 JST（运行快照 2026-07-28 11:23–11:29 UTC）
+
+### 运行、安全与工作区
+
+- 本轮完整读取自动化记忆、`AGENTS.md`、`README.md`、`HANDOFF.md` 和 `FAST_MARKET_MEMORY.md`；`deploy/pi.env` 只读取变量名，未输出或改动值。分支仍为 `main...origin/main`，工作区继续保留既有 `AGENTS.md`、`FAST_MARKET_MEMORY.md`、`FAST_MARKET_RESEARCH_LOG.md` 文档改动，以及归属不明的 `fastbot.py` / `tests/test_fastbot.py` timing/bucket 改动。没有暂存、提交、推送或部署。
+- 三个 systemd user services 均为 `active/running`、`NRestarts=0`，PID 仍为 main `170952`、challenger `113705`、dashboard `172845`；各服务最近 100 条 warning journal 均为空。没有重启、路由、配置、账本、风控或云资源变更。
+- 11:24 UTC 起始聚合 API 为 `ready=true`、`mode=SHADOW`、4/4 execution engines、16 lanes、0 pending、0 champion positions，state age `0.176–0.978s`。champion 仍为 12/12 settled、3 wins、P&L `-$22.209812`、fees `$1.602611`、slippage `$0.338621`、equity `$7.790189`、ROI `-56.8945%`，`portfolio_incident_latched` 未动。
+- `favorite-price-holdout-v1` 保持冻结且永久 `HALTED`：6/6 settled、3 wins、P&L `-$6.512921`、fees `$0.521856`、slippage `$0.050034`、equity `$23.487079`、ROI `-27.3899%`，latency P50/P95/max `721.601/7479.022/9438.540ms`。运行约 `92.237h`，仍仅 6/500 笔和 92.237/336 小时，`eligible=false`；没有解锁、重置或回调规则。
+
+### 捕获到的 `<100ms → >100ms` 反向转换
+
+- 11:24 UTC 的完整 240 样本路径已经回到 BTC/ETH/SOL/XRP `123.99/193.38/198.19/126.51ms`；HTTP P95 `83.49/153.37/157.57/86.63ms`，event-loop P95 `40.43/39.88/40.51/39.82ms`，decision P95 `0.07/0.13/0.11/0.06ms`。四路官方 delay 仍为单列 `0ms verified`，RTDS/market reconnect 全部 `0/0`。
+- 相比 05:24 UTC 同 PID、零重启的 `83.07–88.65ms` 完整窗口，11:24 UTC 已全路重新超过 100ms；HTTP 与 event-loop 都有贡献。这直接证明上一轮的达标窗口没有稳定维持，不是通过重启清空、缩短窗口或改变口径得到的结论。
+- 11:26:28 UTC 的同窗完整指标进一步恶化：BTC/ETH/SOL/XRP HTTP P95 `118.03/156.38/157.25/95.59ms`，event-loop P95 `394.67/394.66/322.81/319.69ms`，decision P95 `0.15/0.10/0.08/0.08ms`，路径 `512.85/551.14/480.14/415.36ms`。此时后端严格 3 秒 freshness 判定为 3/4 online；20 秒窗末端为 2/4 online，最大 state age `3.923s`，但服务 PID/restart count 未变。
+- 紧接的 10 个约七秒隧道快照全部恢复 `ready=true`、4/4 online，最大 state age `0.717–2.242s`；完整路径范围仍为 `193.80–316.87ms`。11:28:42 UTC 最终窗口为 BTC/ETH/SOL/XRP `210.56/232.71/234.61/161.97ms`，HTTP P95 `133.17/155.37/157.25/84.68ms`、event-loop P95 `77.29/77.23/77.29/77.24ms`、decision P95 `0.10/0.11/0.07/0.05ms`。
+- 11:26:28–11:26:48 UTC 的 20 秒 `/proc` 资源窗：main/challenger/dashboard 单核 CPU `72.35/1.75/1.15%`，aggregate steal `50.12%`、iowait `2.90%`，MemAvailable `139,653,120B`，swap 使用 `135,929,856B / 1,073,737,728B`，load average 末端 `0.71/0.54/0.49`。高 steal/主进程 CPU 与 event-loop 尾部及真实 freshness 瞬时失败同相，但 20 分钟滑动指标与 20 秒资源窗仍不等尺度；它支持继续做配对观测，不能单独证明唯一因果或支持付费扩容。
+- 本轮不重复 IPv4 warm probe：主服务实际走 IPv6，既有双栈与完整长窗没有稳定 IPv4 优势；当前已经捕获的问题是 event-loop/host 调度阶段变化，短 IPv4 RTT 不会回答它。
+
+### Observer 收益、校准与延迟
+
+- 11:26:49 UTC 直接以 SQLite `mode=ro` 读取四个 observer 账本：5255 fills / 5250 settled、3115 wins，净 P&L `-$1,326.269177`，fees `$652.409991`，slippage `$40.218275`，cost `$24,851.469777`，accuracy `59.3333%`（Wilson 95% CI `[57.9982%,60.6548%]`），ROI `-5.3368%`，Brier `0.238302`；每笔平均 P&L `-$0.252623`，普通近似 95% CI `[-$0.356730,-$0.148515]`。
+- 相比 05:24 UTC 的 5009 settled 直连快照：`+241` 笔，累计净 P&L 再降 `$88.946890`，fees 增 `$31.537806`、slippage 增 `$2.286549`、cost 增 `$1,151.589690`；ROI `-5.2208% → -5.3368%`，Brier `0.237371 → 0.238302`。11:28 UTC 聚合 API 已继续推进至 5251 settled、P&L `-$1,331.140671`。
+
+价格区间：
+
+| intended ask | n | accuracy | 净 P&L | ROI | Brier |
+|---|---:|---:|---:|---:|---:|
+| <0.40 | 48 | 29.1667% | -$21.127289 | -10.4492% | 0.292449 |
+| 0.40–0.50 | 613 | 42.7406% | -$259.908649 | -9.1674% | 0.265292 |
+| 0.50–0.60 | 1780 | 49.7753% | -$618.479119 | -7.4325% | 0.265778 |
+| 0.60–0.70 | 1307 | 62.2035% | -$169.600137 | -2.7273% | 0.242898 |
+| >=0.70 | 1502 | 75.8988% | -$257.153984 | -3.5352% | 0.188995 |
+
+- 方向：UP n=2495、accuracy `58.8778%`、P&L `-$679.533524`、ROI `-5.7501%`、Brier `0.240323`；DOWN n=2755、accuracy `59.7459%`、P&L `-$646.735654`、ROI `-4.9621%`、Brier `0.236471`。两方向点估计和 P&L 95% CI 均为负。
+- selected probability：`0.50–0.60` n=1090、ROI `-11.5286%`；`0.60–0.70` n=1716、ROI `-5.3523%`；`0.70–0.80` n=1257、ROI `-1.9567%`；`>=0.80` n=1187、ROI `-3.4030%`。所有标准概率桶仍为负，不得据此回改冻结 holdout。
+- observer arrival latency P50/P95/max `639.055/2161.350/9951.273ms`；这是历史信号到模拟到达盘口延迟，不是 RTT。`<=100ms` 已增至 n=231，ROI 从先前小样本正值转为 `-0.7428%`，每笔 P&L CI `[-$0.546041,+$0.473861]` 仍跨 0；`100–500/500–1000/1000–2000/>2000ms` ROI 分别为 `-7.8545%/-3.5683%/-3.5390%/-7.7923%`。
+
+### 假设、验证、失败与决定
+
+- 本轮验证上一轮唯一优先项“优先捕获下一次完整窗口转换”：在相同服务 PID、零重启、零部署下，完整路径从 05:24 UTC 的 `83–89ms` 回到 11:24 UTC 的 `124–198ms`，并在 11:26 UTC 同相资源窗达到 `415–551ms`。转换已经捕获。
+- 数据支持“高 host scheduling pressure 与 event-loop/freshness 恶化可同相出现”，但不支持“steal 是唯一根因”：资源窗仅 20 秒，而路径 P95 是约 20 分钟滑动窗口；此前配对研究也发现 main/sidecar 的约 158ms TTFB 次级模式差值不随 steal 四分位扩大。公网 TTFB 次级模式与本机 event-loop 尾部仍是两个可同时出现的问题。
+- 本轮没有明确、可复现、低风险的软件浪费值得立刻修改。工作区的 timing/bucket 诊断仍归属不明，虽然设计与测试方向合理，但未获明确归属前继续保护，不提交、不部署、不重启。没有改变 executor、IPv4/IPv6、freshness、状态 writer、风险闸门、指标窗口或机器。
+- `P95<100ms`：**当前未达成且稳定性目标未达成**；最终完整窗口 `161.97–234.61ms`，本轮峰值窗口 `415.36–551.14ms`。
+- 收益证据：**未达标**；5250 笔费用、滑点和延迟后 ROI `-5.3368%`，每笔 P&L 95% CI 完全低于 0；冻结 holdout 仍仅 6 笔且永久锁定。
+- 最新可验证教训：现有套餐同日、同 PID、零重启下既能完整达到 `83–89ms`，也会回到 `162–235ms` 并短时恶化至 `415–551ms`；20 秒高 steal 与 event-loop/freshness 恶化同相，但仍不能用短窗替代等时间尺度因果证据或作为购买机器的依据。
+- 下一轮唯一优先项：保持服务与指标定义不变，做一个完整 240 样本（约 20 分钟）的低开销资源/API 配对窗口，记录每个五秒资源样本和路径滑动值，专门判断 `<100ms ↔ >100ms` 转换是否持续随 aggregate steal/event-loop 同涨同落；在 timing/bucket 改动归属明确前仍不部署。
+
+## 2026-07-30 06:03 JST（运行快照 2026-07-29 20:37–21:03 UTC）
+
+### 运行、安全与工作区
+
+- 本轮完整读取自动化记忆、`AGENTS.md`、`README.md`、`HANDOFF.md` 和 `FAST_MARKET_MEMORY.md`；`deploy/pi.env` 只验证既有 SSH 坐标变量存在，未输出或改动任何值。分支仍为 `main...origin/main`，工作区继续保留既有三份研究文档改动，以及归属不明的 `fastbot.py` / `tests/test_fastbot.py` timing/bucket 诊断；没有覆盖、暂存、提交、推送或部署运行代码。
+- 运行全程保持 `mode=SHADOW`。champion 仍为 12/12 settled、3 wins、P&L `-$22.209811`、fees `$1.602610`、equity `$7.790189`、ROI `-56.8945%`、0 open positions，`portfolio_incident_latched` 未动。其模拟成交 latency P50/P95/max 仍为 `40.423/59.633/73.991ms`，累计 slippage `$0.338621`。
+- `favorite-price-holdout-v1` 仍保持冻结且永久 `HALTED`：6/6 settled、3 wins、P&L `-$6.512921`、fees `$0.521856`、slippage `$0.050034`、equity `$23.487079`、ROI `-27.3899%`，latency P50/P95/max `721.601/7479.022/9438.540ms`。运行约 `125.85h`，仍仅 6/500 笔和 125.85/336 小时，`eligible=false`；没有解锁、重置或改变规则。
+- 三个 systemd user services 在窗口前后均为 `active/running`、`NRestarts=0`，PID 保持 main `170952`、challenger `113705`、dashboard `172845`；三服务最近 100 条 warning journal 合计为 0。没有重启、路由、配置、账本、风控、指标或云资源变更。
+- 第一次前台长窗随本地 SSH 超时被中断且未留下数据；随后使用明确的 `/tmp/polyvote_paired_20260730_0541.{py,jsonl}` 运行后台只读采样。结束后核对两者均为 `ubuntu` 所有的 regular file、路径严格位于 `/tmp`，再删除并验证不存在。没有改动部署目录。
+
+### 完整 240 样本五秒 resource/API 配对窗
+
+- 采样窗为 `2026-07-29T20:42:31.766802Z` 至 `21:02:31.767004Z`，5 秒 cadence，240/240 个 API/resource 样本成功、0 采样错误。原 `clob_http`、240 样本窗口、event-loop、decision、1 秒 state writer、3 秒 freshness 和官方 delay 口径均未改变。
+- 四资产的路径滑动 P95 跨时点分布如下；这里每个点仍按既定公式 `HTTP P95 + event-loop P95 + decision P95`，没有缩窗或从路径中减去 queue：
+
+| asset | 路径 min | 路径跨时点 P50 | 路径跨时点 P95 | 路径 max |
+|---|---:|---:|---:|---:|
+| BTC | 225.18ms | 479.83ms | 848.38ms | 940.15ms |
+| ETH | 300.45ms | 540.09ms | 852.16ms | 940.91ms |
+| SOL | 298.25ms | 537.18ms | 851.59ms | 940.17ms |
+| XRP | 299.60ms | 540.42ms | 862.69ms | 959.32ms |
+
+- 240/240 个快照均为四资产全路路径高于 100ms；0/240 个快照四路同时低于 100ms。跨资产路径均值的跨时点 P50/P95/max 为 `522.73/833.66/940.61ms`，所以当前与稳定性目标均明确失败。
+- HTTP 滑动 P95 的跨时点 P50/P95 为 BTC `160.17/234.72ms`、ETH `165.03/240.08ms`、SOL `160.57/238.73ms`、XRP `238.56/240.16ms`；event-loop 滑动 P95 的跨时点 P50/P95 为 `313.12–317.40ms / 637.42–693.28ms`；decision 滑动 P95 的跨时点 P50/P95 仅 `0.07–0.11ms / 0.09–0.14ms`。公网 TTFB 次级模式与本机 event-loop 尾部在本窗中同时出现，decision 仍可忽略。
+- aggregate steal P50/P95/max `64.25/84.49/91.54%`，iowait `2.51/13.40/19.15%`；main 单核 CPU P50/P95/max `90.00/104.98/109.63%`，challenger `1.79/11.34/18.06%`，dashboard `4.96/9.60/13.90%`。MemAvailable min/P50/max `112,984,064/144,236,544/155,754,496B`；swap used min/P50/P95/max `150,269,952/155,494,400/163,448,832/167,571,456B`，总 swap 仍为 `1,073,737,728B`。
+- 路径均值与 aggregate steal 的 Pearson 相关在 5 秒原值上仅 `0.202`，event-loop 与 steal 为 `0.216`；路径与 60 秒 trailing steal 平均的相关提高到 `0.631`，与 60 秒 main CPU 平均为 `0.460`。窗口内多次出现反向变化，例如路径约 `863–897ms → 459–461ms` 时 steal `67.8% → 69.4%`，以及路径 `700–703ms → 379–382ms` 时 steal `64.0% → 78.4%`。因此中期资源压力与路径存在共变，但“路径持续随瞬时 steal 同涨同落”的简单假设被否定。
+- strict freshness 风险比滑动路径相关更一致：46/240 个 API 快照 `ready=false`，最差 `0/4 online`；各资产最大 state age `6.478–8.719s`，跨时点 P95 `3.300–3.694s`。分钟级进度点两次捕获 steal `82.9–84.3%` 时仅 2/4 online，压力回落后无重启恢复 4/4。这证明高调度压力与 freshness 失败可以持续共现，但仍不能从观察性相关推出 steal 是唯一根因。
+- 21:03 UTC 最终 API 已恢复 `ready=true`、4/4 online、state age `0.243–1.204s`，但完整路径仍为 BTC/ETH/SOL/XRP `475.67/543.05/541.67/541.98ms`；HTTP P95 `172.69–240.08ms`、event-loop P95 `302.88ms`、decision P95 `0.06–0.10ms`。官方 delay 仍为四路单列 `0ms verified`；market reconnect 全为 0，累计 RTDS reconnect 为 BTC/ETH/SOL/XRP `0/0/1/2`。
+- 本轮不重复 IPv4 warm probe：主服务实际走 IPv6，既有双栈与完整长窗未显示稳定 IPv4 优势；本窗的主问题是 event-loop/freshness 压力与 158–240ms TTFB 次级模式叠加，短 IPv4 RTT 不会回答相位或调度问题。
+
+### Observer 收益、校准与延迟
+
+- 20:43:57 UTC 直接以 SQLite `mode=ro` 读取四个 observer 账本：6583 fills / 6580 settled、3895 wins，净 P&L `-$1,870.361720`，fees `$812.148750`，slippage `$51.026288`，cost `$31,180.948620`，accuracy `59.1945%`，ROI `-5.9984%`，Brier `0.239803`；每笔平均 P&L `-$0.284250`，普通近似 95% CI `[-$0.376911,-$0.191588]`。
+- 相比上一轮 5250 settled 的直接 SQL 快照：`+1330` 笔，累计净 P&L 再降 `$544.092543`，fees 增 `$159.738759`、slippage 增 `$10.808013`、cost 增 `$6,329.478843`；ROI `-5.3368% → -5.9984%`，Brier `0.238302 → 0.239803`。21:03 UTC 聚合 API 已继续推进至 6593 settled、P&L `-$1,899.155760`。
+
+价格区间：
+
+| intended ask | n | accuracy | 净 P&L | ROI | Brier |
+|---|---:|---:|---:|---:|---:|
+| <0.40 | 50 | 30.0000% | -$17.428251 | -8.2558% | 0.291100 |
+| 0.40–0.50 | 714 | 42.4370% | -$318.425594 | -9.6645% | 0.265478 |
+| 0.50–0.60 | 2212 | 49.7740% | -$774.750713 | -7.4857% | 0.265746 |
+| 0.60–0.70 | 1696 | 60.8491% | -$404.633876 | -5.0091% | 0.249106 |
+| >=0.70 | 1908 | 75.6813% | -$355.123286 | -3.8402% | 0.190506 |
+
+- 方向：UP n=3094、accuracy `58.5973%`、P&L `-$989.112271`、ROI `-6.7439%`、Brier `0.243186`；DOWN n=3486、accuracy `59.7246%`、P&L `-$881.249450`、ROI `-5.3363%`、Brier `0.236801`。两方向点估计和每笔 P&L CI 均为负。
+- selected probability：`0.50–0.60` n=1315、ROI `-11.5369%`；`0.60–0.70` n=2130、ROI `-5.6470%`；`0.70–0.80` n=1635、ROI `-4.6201%`；`>=0.80` n=1500、ROI `-3.3236%`。所有标准概率桶仍为负，不得据此回改冻结 holdout。
+- observer arrival latency P50/P95/max `716.045/2243.404/9951.273ms`；这是历史信号到模拟到达盘口延迟，不是当前 RTT。`<=100ms` 已增至 n=240，ROI `-0.2032%` 且每笔 P&L CI `[-$0.507393,+$0.487653]` 跨 0；`100–500/500–1000/1000–2000/>2000ms` ROI 分别为 `-8.7634%/-4.0526%/-4.4878%/-8.0913%`。没有延迟桶提供可推广的正期望证据。
+
+### 假设、验证、失败与决定
+
+- 本轮完成上一轮唯一优先项。完整配对窗否定“滑动路径 P95 持续随 5 秒 steal 同涨同落”的简单假设；60 秒平滑相关为中等正值，高 steal 与 strict freshness 失败反复共现，但 HTTP 次级模式、event-loop 滑动窗口和主机调度仍是可叠加的不同现象，不能据此改 executor、路由或机器。
+- 本轮没有明确、可复现、低风险的软件浪费值得修改。额外 API sampler 的 dashboard CPU P50/P95 仅 `4.96/9.60%`，challenger 为 `1.79/11.34%`，而 main 为 `90.00/104.98%`；但观察性窗口仍不足以安全改变主循环、freshness 或采样口径。timing/bucket 诊断归属仍未明确，因此继续保护，不提交、不部署、不重启。
+- 当前精确工作区的 41 项 Fast tests、前端 validator、13 个 Fast Python 模块 `py_compile` 和最终 `git diff --check` 全部通过。没有运行代码、配置、账本、风控、指标、服务或云资源变更。
+- `P95<100ms`：**当前未达成且稳定性目标未达成**；完整窗 240/240 快照全路失败，最终路径 `475.67–543.05ms`。
+- 收益证据：**未达标**；6580 笔费用、滑点和延迟后 ROI `-5.9984%`，每笔 P&L 95% CI 完全低于 0；冻结 holdout 仍仅 6 笔且永久锁定。
+- 最新可验证教训：高调度压力与 freshness 失败的关系比它与 20 分钟滑动路径 P95 的瞬时关系更一致；路径/steal 的 5 秒相关弱、60 秒相关中等，并存在多段反向变化。HTTP 158–240ms 次级模式与 event-loop 60–781ms 滑动尾部会叠加，不能用一次资源单点或单一相关系数支持付费升级。
+- 下一轮唯一优先项：先明确本地 `fastbot.py` / `tests/test_fastbot.py` timing/bucket 诊断的归属；归属确认后，在不改主指标和服务行为的前提下，让四连接 IPv6 `/time` sidecar 分别对齐主探针相位与错开约半个 cadence，分离 TTFB 次级模式与 event-loop/freshness 压力。归属仍不明时只继续只读观测，不部署、不改 executor、不强制 IPv4、不建议购买机器。
+
+## 2026-07-30 11:43 JST — 高压力只读复查与 observer 扩样
+
+### 约束与工作区
+
+- 完整读取自动化记忆、`AGENTS.md`、`README.md`、`HANDOFF.md`、`FAST_MARKET_MEMORY.md`；`deploy/pi.env` 只读取了变量名以验证既有 SSH 坐标，没有输出或修改任何值。实际 SSH 使用工作站覆盖路径 `C:\Users\<user>\.ssh\<ssh-key>.pem`。
+- 基线仍为 `main...origin/main` 且不干净：`fastbot.py` / `tests/test_fastbot.py` 是归属未明的主探针 monotonic phase 与 TTFB bucket 诊断；另外三份文档是此前自动化研究记录。五份既有改动全部保留，未暂存、提交、推送或部署。
+- 运行时保持严格 `SHADOW`，没有钱包私钥、真实订单、策略/风控/指标/路由/采样频率或云资源变更。champion 与 challenger 事故锁均未解除。
+
+### 时间戳快照
+
+- 本地聚合 API 捕获于 `2026-07-30T02:38:53.666Z`：`ready=true`、4/4 execution engines online、16 lanes、0 pending executions、0 open positions；状态年龄 BTC/ETH/SOL/XRP 为 `1.520/0.480/1.839/0.480s`。
+- 原始 240 样本指标如下；`路径 P95 = HTTP P95 + event-loop P95 + decision P95`，官方 delay 继续单列，不混入此和：
+
+| Asset | HTTP P50/P95/max ms | event-loop P50/P95/max ms | decision P50/P95/max ms | 路径 P95 ms | ACK floor ms |
+|---|---:|---:|---:|---:|---:|
+| BTC | 78.53 / 158.81 / 316.02 | 40.84 / 221.95 / 717.85 | 0.04 / 0.10 / 0.23 | 380.86 | 380.86 |
+| ETH | 79.09 / 160.65 / 558.93 | 40.72 / 220.54 / 717.85 | 0.03 / 0.08 / 61.07 | 381.27 | 381.27 |
+| SOL | 78.76 / 159.25 / 434.63 | 40.84 / 221.95 / 717.85 | 0.02 / 0.06 / 78.12 | 381.26 | 381.26 |
+| XRP | 78.77 / 159.19 / 452.88 | 40.60 / 220.55 / 717.84 | 0.02 / 0.06 / 0.14 | 379.80 | 379.80 |
+
+- 主探针 breakdown 的 queue-wait P50/P95/max 为 BTC `0.58/79.98/181.13ms`、ETH `0.48/78.65/160.65ms`、SOL `0.62/79.37/158.50ms`、XRP `0.59/79.27/207.62ms`；socket TTFB P50/P95 为 `78.52–79.04/158.79–160.63ms`，body-read P95 全为 `0.03ms`。原 HTTP 计时仍从 worker 内开始，queue 不得相减或混入既定路径。
+- 四路官方 taker delay 均为 `0ms enabled+verified`。market reconnect 全为 0；累计 RTDS reconnect 为 BTC/ETH/SOL/XRP `0/0/1/2`。`ARRIVAL AVG` 约 `900ms` 是历史信号到模拟到达盘口延迟，不是当前 RTT。
+- `2026-07-30T02:40:54.260Z` 结束的远端 10.078 秒资源窗：aggregate steal `64.75%`、iowait `5.88%`；main/challenger/dashboard 单核 CPU `95.06/3.57/0.00%`。MemAvailable `134,692,864B`，swap used `143,269,888 / 1,073,737,728B`。
+- 三个 systemd user 服务均 `active/running`，PID 仍为 main/challenger/dashboard `170952/113705/172845`，`NRestarts=0`；各自最近 100 条 warning 级 journal 为 0 行。与上一轮相同，没有部署或重启。
+- 相比上一轮 21:03 UTC 终点路径 `475.67–543.05ms`，本轮降到 `379.80–381.27ms`，主要伴随 event-loop P95 从约 `302.88ms` 回落到约 `221ms`；但仍全路失败。当前 10 秒高 steal 与高 main CPU 只是又一个同相点，不推翻上一轮 240 样本中 5 秒相关仅 `0.202`、60 秒相关 `0.631` 且多次反向变化的证据。
+- `2026-07-30T02:45:59.684Z` 的最终 API 仍为 4/4 online、state age `0.483–1.716s`，路径又自然回落到 BTC/ETH/SOL/XRP `301.98/303.54/301.43/302.36ms`；HTTP P95 `159.90–161.07ms`、event-loop P95 `141.21–143.16ms`、decision P95 `0.08–0.13ms`。该终点没有新的资源配对，不能把这次回落归因于 steal 或 CPU 变化。
+- 未重复 IPv4 warm probe：主服务已确认使用 IPv6，既有双栈和完整长窗未显示稳定 IPv4 优势；本轮问题仍是约 `159–161ms` TTFB 次级模式叠加约 `221ms` event-loop P95，短 IPv4 探针不会回答归属/相位问题。
+
+### 账本、收益、校准与延迟
+
+- champion：12 fills / 12 settled / 3 wins，净 P&L `-$22.209812`、fees `$1.602611`、slippage `$0.338621`、cost `$39.036812`、ROI `-56.8945%`；latency P50/P95/max `40.423/59.633/73.991ms`。equity 仍为 `$7.790189`，0 positions，永久 `portfolio_incident_latched`。
+- 冻结 challenger `favorite-price-holdout-v1`：6/6 settled、3 wins，净 P&L `-$6.512921`、fees `$0.521856`、slippage `$0.050034`、cost `$23.778521`、ROI `-27.3899%`；latency P50/P95/max `721.601/7479.022/9438.540ms`。运行约 `131.438h`，仍远低于 336h/500 笔门槛，并永久 `HALTED` 于 `challenger_portfolio_daily_loss_gate`；未回改规则或重置账本。
+- `2026-07-30T02:42:33.139Z` 直接以 SQLite `mode=ro` 读取四个 observer 账本：6824 fills / 6819 settled、4041 wins，净 P&L `-$1,947.371284`，fees `$839.740205`，slippage `$52.948619`，cost `$32,320.475184`，accuracy `59.2609%`，ROI `-6.0252%`，Brier `0.239739`；每笔平均 P&L `-$0.285580`，普通近似 95% CI `[-$0.376503,-$0.194657]`。
+- 相比上轮 6580 settled 的直读快照：`+239` 笔，累计净 P&L 再降 `$77.009564`，fees 增 `$27.591455`、slippage 增 `$1.922331`、cost 增 `$1,139.526564`；ROI `-5.9984% → -6.0252%`。API 与直读时间不同且账本持续推进，因此 02:38 UTC API 的 6820/6817 不替代稍后的直读统计。
+
+价格区间：
+
+| intended ask | n | accuracy | 净 P&L | ROI | Brier |
+|---|---:|---:|---:|---:|---:|
+| <0.40 | 50 | 30.0000% | -$17.428251 | -8.2558% | 0.291100 |
+| 0.40–0.50 | 732 | 43.0328% | -$283.315834 | -8.3931% | 0.264617 |
+| 0.50–0.60 | 2271 | 49.7578% | -$797.009396 | -7.4989% | 0.265858 |
+| 0.60–0.70 | 1773 | 60.4625% | -$480.632107 | -5.6920% | 0.250632 |
+| >=0.70 | 1993 | 75.7150% | -$368.985697 | -3.8191% | 0.189861 |
+
+- 方向：UP n=3197、accuracy `59.0241%`、P&L `-$923.488919`、ROI `-6.0931%`、Brier `0.241820`，每笔 P&L CI `[-$0.422403,-$0.155319]`；DOWN n=3622、accuracy `59.4699%`、P&L `-$1,023.882365`、ROI `-5.9653%`、Brier `0.237902`，CI `[-$0.406829,-$0.158540]`。
+- selected probability：`0.50–0.60` n=1348、ROI `-10.3174%`；`0.60–0.70` n=2199、ROI `-6.2363%`；`0.70–0.80` n=1706、ROI `-5.0866%`；`>=0.80` n=1566、ROI `-3.2192%`。所有标准价格、方向和概率桶的点估计仍为负，不得据此回改冻结 holdout。
+- observer arrival latency P50/P95/max `717.882/2317.942/9951.273ms`。`<=100ms` 仍仅 n=240、ROI `-0.2032%`，每笔 P&L CI `[-$0.507393,+$0.487653]` 跨 0；`100–500/500–1000/1000–2000/>2000ms` ROI 为 `-9.1765%/-3.9653%/-3.9052%/-8.6972%`。没有延迟桶提供可推广的正期望证据。
+
+### 假设、验证、失败与决定
+
+- 本轮唯一假设是“上一轮高压力和 freshness 失败后是否已自然恢复到稳定 `<100ms`”。验证结果：freshness 已恢复到 4/4 online，但完整 240 样本路径先为 `379.80–381.27ms`、终点仍为 `301.43–303.54ms`，因此当前目标和稳定性目标都失败。
+- 没有明确、可复现、低风险的软件浪费支持修改。约 `159–161ms` 的 socket TTFB 次级模式与 `141–222ms` event-loop P95 同时存在；10 秒资源点不能分离公网相位、主进程负载与宿主调度，也不能支持改 executor、强制 IPv4 或购买机器。
+- timing/bucket 诊断的归属仍不明确，因此继续保护：不提交、不推送、不部署、不重启。没有触碰 1 秒 freshness、原子状态、事故锁、holdout、live mode 或任何云资源。
+- 精确工作区通过 41 项 Fast tests、前端 validator、13 个 Fast Python 模块 `py_compile`、`AGENTS.md`/`FAST_MARKET_MEMORY.md` 同步校验与 `git diff --check`。
+- `P95<100ms`：**当前未达成，稳定性也未达成**。收益证据：**未达标**，6819 笔费用、滑点和延迟后 ROI `-6.0252%`，每笔 P&L 95% CI 完全低于 0。
+- 最新可验证教训：从上一轮终点约 `476–543ms` 先自然回落到约 `380ms`、再到约 `302ms` 时服务 PID/重启数未变，而只有中间点有高 steal/high main CPU 配对；这再次说明单个端点资源读数不足以解释跨时段路径变化。现有证据只支持继续分相观测，不支持付费升级或改变指标口径。
+- 下一轮唯一优先项：先明确 `fastbot.py` / `tests/test_fastbot.py` timing/bucket 诊断归属。归属确认后再做四连接 IPv6 `/time` sidecar 的主相位对齐与半 cadence 错相比较；归属仍不明时继续只读采样，不部署、不改 executor、不强制 IPv4、不建议购买机器。
+
+## 2026-07-30 17:45 JST — 同 PID 高压力复查与 observer 阶段性回升
+
+### 约束、工作区与服务
+
+- 本轮完整读取自动化记忆、`AGENTS.md`、`README.md`、`HANDOFF.md` 和 `FAST_MARKET_MEMORY.md`；`deploy/pi.env` 仅只读确认 `POLYVOTE_PI`、`POLYVOTE_KEY`、`POLYVOTE_DEST` 三个变量名，未输出或修改其值。SSH 使用工作站覆盖密钥路径。
+- 分支仍为 `main...origin/main`，已有改动为此前自动化维护的 `AGENTS.md`、`FAST_MARKET_MEMORY.md`、`FAST_MARKET_RESEARCH_LOG.md`，以及归属未明的 `fastbot.py` / `tests/test_fastbot.py` monotonic phase 与 TTFB bucket 诊断。所有既有改动均保留；未暂存、提交、推送或部署。
+- 运行时保持严格 `SHADOW`，4/4 execution engines online、16 lanes、0 champion positions。champion 继续永久 `portfolio_incident_latched`；冻结 challenger 继续永久 `challenger_portfolio_daily_loss_gate`。没有钱包私钥、真实订单、规则、事故锁、freshness、指标口径、路由、采样频率或云资源变更。
+- 三个 systemd user 服务均为 `active/running`，main/challenger/dashboard PID 仍为 `170952/113705/172845`，`NRestarts=0`。10 秒窗前后 PID 与重启数不变；三个服务各自最近 100 条 warning journal 均为 0 行。
+
+### API 与 10 秒资源同时点
+
+- 初始聚合 API 捕获于 `2026-07-30T08:39:58.146Z`，`generated_at=2026-07-30T08:39:56.500838Z`、`ready=true`、`mode=SHADOW`、4/4 online。state age BTC/ETH/SOL/XRP `0.637/0.160/0.401/0.800s`。
+- 原始完整 240 样本如下；可控路径仍按 `HTTP P95 + event-loop P95 + decision P95`，官方 delay 单列：
+
+| Asset | HTTP P50/P95/max ms | queue P50/P95/max ms | socket TTFB P50/P95/max ms | body P95/max ms | event-loop P50/P95/max ms | decision P50/P95/max ms | path/ACK floor P95 ms |
+|---|---|---|---|---|---|---|---:|
+| BTC | 78.32 / 158.83 / 318.65 | 0.53 / 79.99 / 158.71 | 78.30 / 158.81 / 318.63 | 0.03 / 0.17 | 20.92 / 134.22 / 436.52 | 0.05 / 0.13 / 11.71 | 293.18 |
+| ETH | 78.20 / 160.28 / 401.18 | 0.42 / 78.95 / 236.29 | 78.17 / 160.27 / 401.16 | 0.03 / 0.22 | 21.39 / 134.17 / 436.53 | 0.05 / 0.11 / 78.71 | 294.56 |
+| SOL | 77.87 / 158.12 / 477.86 | 0.36 / 78.16 / 158.96 | 77.85 / 158.10 / 477.84 | 0.03 / 0.25 | 21.51 / 123.52 / 436.53 | 0.04 / 0.09 / 48.80 | 281.73 |
+| XRP | 78.22 / 158.86 / 264.60 | 0.42 / 78.45 / 236.40 | 78.21 / 158.84 / 264.58 | 0.04 / 8.76 | 20.55 / 134.18 / 436.53 | 0.04 / 0.10 / 79.13 | 293.14 |
+
+- 四路官方 platform taker delay 均为 `0ms enabled+verified`。累计 RTDS/market reconnect 为 BTC `0/0`、ETH `2/0`、SOL `1/4`、XRP `2/1`；相对上一轮出现 ETH RTDS、SOL market、XRP market 增量，但 API 全程 4/4 online、state age 低且 warning journal 为空，不支持据此修改重连、freshness 或 fail-closed 规则。
+- `2026-07-30T08:42:24.100Z` 至 `08:42:34.101Z` 的 10.000 秒 VPS 窗：aggregate steal `63.17%`、iowait `1.71%`；main/challenger/dashboard 单核 CPU `94.50/3.50/2.80%`。MemAvailable `140,914,688B / 434,307,072B`，swap 使用 `152,117,248 / 1,073,737,728B`，末端 load average `2.23/1.31/0.97`。
+- 最终 API 捕获于 `2026-07-30T08:45:10.943Z`，仍 4/4 online、state age `0.710–0.988s`。路径 BTC/ETH/SOL/XRP 为 `296.07/295.79/294.59/296.16ms`，HTTP P95 `159.55–160.70ms`、event-loop P95 `134.96–135.40ms`、decision P95 `0.08–0.14ms`。
+- `2026-07-30T08:48:04.142Z` 的最终健康核对捕获到一次真实 strict freshness 降级：`ready=false`、3/4 online、最大 state age `3.121s`。随后约 39 秒的 10 次跟踪全部 `ready=true`、4/4 online，最大 state age `0.879–2.560s`，说明本次无需重启即自然恢复；各次路径范围为 `304.82–376.82ms`，最后 `2026-07-30T08:48:57.385Z` 为 `335.34–338.94ms`。
+- 与上一轮 11:46 JST 无资源配对终点 `301.43–303.54ms` 相比只回落约 `5–9ms`；同步资源压力与上一轮 `64.75% steal / 95.06% main CPU` 几乎相同。这个重复高压力点仍只能说明共现；上一完整 240 点研究中的弱 5 秒相关、60 秒中等相关和多段反向变化继续阻止唯一因果结论。
+- 未重复 IPv4 warm probe：主服务实际使用 IPv6，已有双栈与完整 IPv6 sidecar 没有稳定 IPv4 优势；本轮阻塞仍是本地 timing/bucket 诊断归属和主探针相位，短 IPv4 探针不会回答它。
+
+### 账本、收益、校准与延迟
+
+- champion 直读：12 fills / 12 settled / 3 wins，净 P&L `-$22.209812`、fees `$1.602611`、slippage `$0.338621`、cost `$39.036812`、ROI `-56.8945%`，每笔 P&L 95% CI `[-$3.162969,-$0.538666]`；latency P50/P95/max `40.423/59.633/73.991ms`。equity `$7.790188`、0 positions，事故锁未动。
+- 冻结 challenger `favorite-price-holdout-v1` 直读：6/6 settled、3 wins，净 P&L `-$6.512921`、fees `$0.521856`、slippage `$0.050034`、cost `$23.778521`、ROI `-27.3899%`，每笔 P&L CI `[-$3.657492,+$1.486519]`；latency P50/P95/max `721.601/7479.022/9438.540ms`。API runtime `137.544h`，仍仅 6/500 笔和 137.544/336 小时，`eligible=false` 且永久 HALTED；没有回改参数或重置账本。
+- `2026-07-30T08:44:34.579Z` 直接以 SQLite `mode=ro` 读取四个 observer 账本：7064 fills / 7063 settled、4212 wins，净 P&L `-$1,795.741693`、fees `$870.005055`、slippage `$54.983682`、cost `$33,475.150993`，accuracy `59.6347%`、ROI `-5.3644%`、Brier `0.238432`；每笔平均 P&L `-$0.254246`，普通近似 95% CI `[-$0.343544,-$0.164949]`。
+- 相比上一轮 6819 settled：新增 244 笔，累计 P&L 回升 `$151.629591`，fees 增 `$30.264850`、slippage 增 `$2.035063`、cost 增 `$1,154.675809`；ROI 从 `-6.0252%` 回升到 `-5.3644%`，Brier 从 `0.239739` 降到 `0.238432`。累计收益和每笔 P&L CI 仍明确为负，阶段性回升不能称为正期望。
+
+价格区间：
+
+| intended ask | n | accuracy | 净 P&L | ROI | Brier |
+|---|---:|---:|---:|---:|---:|
+| <0.40 | 50 | 30.0000% | -$17.428251 | -8.2558% | 0.291100 |
+| 0.40–0.50 | 756 | 43.5185% | -$256.777317 | -7.3646% | 0.264232 |
+| 0.50–0.60 | 2355 | 50.3185% | -$705.169923 | -6.4026% | 0.264511 |
+| 0.60–0.70 | 1843 | 60.7162% | -$463.962994 | -5.2847% | 0.249461 |
+| >=0.70 | 2059 | 75.9592% | -$352.403209 | -3.5296% | 0.187978 |
+
+- 方向：UP n=3319、accuracy `59.2648%`、P&L `-$907.393609`、ROI `-5.7662%`、Brier `0.240590`、每笔 P&L CI `[-$0.404264,-$0.142524]`；DOWN n=3744、accuracy `59.9626%`、P&L `-$888.348084`、ROI `-5.0080%`、Brier `0.236519`、CI `[-$0.359429,-$0.115116]`。
+- selected probability：`0.50–0.60` n=1396、ROI `-8.9486%`；`0.60–0.70` n=2280、ROI `-5.4745%`；`0.70–0.80` n=1774、ROI `-4.7251%`；`>=0.80` n=1613、ROI `-2.9474%`。所有标准概率桶点估计仍为负。
+- observer arrival latency P50/P95/max `719.081/2320.730/9951.273ms`，这是历史信号到模拟到达盘口延迟，不是当前 RTT。`<=100ms` n=240、ROI `-0.2032%` 且每笔 P&L CI `[-$0.507393,+$0.487653]`；`100–500/500–1000/1000–2000/>2000ms` ROI 为 `-8.8004%/-3.3000%/-3.7630%/-4.9356%`。所有延迟桶点估计为负，没有可推广的子群。
+
+### 验证、决定与下一轮唯一优先项
+
+- 当前精确工作区通过 41 项 Fast tests、前端 validator 和 13 个 Fast Python 模块 `py_compile`。最终同步检查与 `git diff --check` 在文档追加后再次执行。
+- 没有明确、可复现、低风险的软件浪费支持本轮改动。归属未明的 timing/bucket 诊断继续阻塞提交和部署；本轮没有调用 `deploy/push.sh`，没有重启服务。
+- `P95<100ms`：**当前未达成，稳定性也未达成**；最后跟踪窗口 `335.34–338.94ms`，且本轮捕获一次 3/4 strict freshness 失败后自然恢复。收益证据：**未达标**；7063 笔费用、滑点和延迟后 ROI `-5.3644%`，每笔 P&L 95% CI 完全低于 0。
+- 最新可验证教训：相近的高 steal/main CPU 条件下，完整路径从约 `380ms` 到约 `302ms` 再到约 `295ms`，主要随 event-loop 滑动尾部变化；这仍不支持用端点资源读数作唯一因果或付费扩容依据。observer 的 244 笔阶段性盈利只缩小累计亏损，没有改变负 ROI、负 CI 和所有标准分桶负点估计。
+- 下一轮唯一优先项：先明确本地 `fastbot.py` / `tests/test_fastbot.py` timing/bucket 诊断归属；归属确认后再执行四连接 IPv6 `/time` sidecar 的主探针同相与半 cadence 错相对照。归属仍不明时继续只读观测，不部署、不改 executor、不强制 IPv4、不建议购买机器。
+
+## 2026-07-30 23:47 JST — 重复 freshness 降级与 observer 继续扩样
+
+### 约束、工作区与服务
+
+- 本轮完整读取自动化记忆、`AGENTS.md`、`README.md`、`HANDOFF.md` 和 `FAST_MARKET_MEMORY.md`。SSH 使用工作站覆盖密钥；没有输出或修改任何坐标、密钥或秘密。
+- 分支仍为 `main...origin/main`，运行前已有五个修改文件：三份自动化研究文档，以及归属不明的 `fastbot.py` / `tests/test_fastbot.py` monotonic phase 与 TTFB bucket 诊断。所有既有改动均被保护；本轮只追加三份研究文档，不暂存、提交、推送或部署。
+- 运行时保持严格 `SHADOW`。champion 继续永久 `portfolio_incident_latched`；冻结的 `favorite-price-holdout-v1` 继续永久 `challenger_portfolio_daily_loss_gate`。没有钱包私钥、真实订单、策略、holdout、事故锁、freshness、指标口径、路由、采样频率或云资源变更。
+- 三个 systemd user 服务在降级前后均为 `active/running`，main/challenger/dashboard PID 保持 `170952/113705/172845`，`NRestarts=0`；各服务最近 500 行中 warning 计数均为 0。累计 RTDS/market reconnect 保持 BTC `0/0`、ETH `2/0`、SOL `1/4`、XRP `2/1`，没有新增。
+
+### API、路径与 10 秒资源窗
+
+- 初始 API 捕获于 `2026-07-30T14:40:50.340Z`：`ready=true`、4/4 execution engines online、16 lanes、state age `0.851–2.240s`。完整 240 样本指标如下；路径仍按 `HTTP P95 + event-loop P95 + decision P95`，官方 delay 单列：
+
+| Asset | HTTP P50/P95/max ms | event-loop P50/P95/max ms | decision P50/P95/max ms | path/ACK floor P95 ms |
+|---|---:|---:|---:|---:|
+| BTC | 78.98 / 160.75 / 776.93 | 40.57 / 220.91 / 621.95 | 0.06 / 0.14 / 74.33 | 381.80 |
+| ETH | 78.19 / 159.78 / 321.42 | 40.63 / 220.92 / 621.95 | 0.04 / 0.14 / 71.56 | 380.84 |
+| SOL | 78.57 / 159.40 / 399.79 | 40.76 / 220.92 / 621.95 | 0.05 / 0.12 / 77.40 | 380.44 |
+| XRP | 77.96 / 159.66 / 560.16 | 40.74 / 220.92 / 621.95 | 0.03 / 0.10 / 0.39 | 380.68 |
+
+- 四路官方 platform taker delay 继续为 `0ms verified`，没有混入可控路径。历史 `ARRIVAL AVG` 不是当前 RTT。
+- `2026-07-30T14:42:16Z–14:42:26Z` 的远端 10.026 秒资源窗：aggregate steal `69.42%`、iowait `1.67%`；main/challenger/dashboard 单核 CPU `107.82/4.59/0.00%`。MemAvailable `147,390,464B`，swap 使用 `162,942,976 / 1,073,737,728B`。
+- `14:44:41Z` API 降到 `ready=false`、3/4 online，最大 state age `3.762s`；路径已升到 `462.06–472.39ms`，HTTP P95 `161.00–171.60ms`、event-loop P95 `300.70–301.25ms`。随后八次跟踪的前三次仍为 3/4、3/4、2/4，最大 state age `4.957s`；从 `14:45:10Z` 起连续五次自然恢复 4/4，无服务重启。
+- 八次跟踪路径范围最高达到 `632.72ms`。`14:46:01Z` 终点仍为 `ready=true`、4/4 online，路径 BTC/ETH/SOL/XRP `541.09/543.69/548.38/540.52ms`；HTTP P95 `161.28–169.12ms`、event-loop P95 四路均 `379.16ms`、decision P95 `0.08–0.13ms`。
+- 测试后的 `14:49:32Z` 最终健康核对仍为 `ready=true`、4/4 online、最大 state age `2.241s`，路径又在零重启下自然回落到 `383.07–390.37ms`；持续推进的 API 账本已到 7286 settled、P&L `-$1,818.519519`，但研究统计继续以同一时点的 14:43:50Z 只读 SQL 快照为准。
+- 相比 17:49 JST 上轮终点 `335.34–338.94ms`，本轮终点又高约 `202–210ms`，主要来自 event-loop 滑动尾部；同 PID、零重启和空 warning journal 排除了服务重启/异常退出作为解释。重复出现的高 steal/main CPU 与 strict freshness 失败共现，加强了“调度压力可能影响 freshness”的观察性证据，但 10 秒资源窗与 240 样本滑动 P95 仍不等尺度，且既有 240 点研究存在弱瞬时相关和反向变化，因此不能声称唯一因果或据此购买机器。
+- 未重复 IPv4 warm probe：主进程实际走 IPv6，既有双栈和完整长窗没有稳定 IPv4 优势；当前优先问题仍是归属未明的主探针相位诊断和 event-loop/freshness 压力，短 IPv4 探针不会回答它。
+
+### 账本、收益、校准与延迟
+
+- champion 直读仍为 12 fills / 12 settled / 3 wins，净 P&L `-$22.209812`、fees `$1.602611`、slippage `$0.338621`、cost `$39.036812`、ROI `-56.8945%`，每笔 P&L 95% CI `[-$3.162969,-$0.538666]`；latency P50/P95/max `40.423/59.633/73.991ms`。equity `$7.790189`、0 positions，事故锁未动。
+- 冻结 challenger 直读仍为 6/6 settled、3 wins，净 P&L `-$6.512921`、fees `$0.521856`、slippage `$0.050034`、cost `$23.778521`、ROI `-27.3899%`，每笔 P&L CI `[-$3.657492,+$1.486519]`；latency P50/P95/max `721.601/7479.022/9438.540ms`。API runtime `143.552h`，仍仅 6/500 笔和 143.552/336 小时，`eligible=false` 且永久 HALTED；没有回改参数或重置账本。
+- `2026-07-30T14:43:50Z` 直接以 SQLite `mode=ro` 读取四个 observer 账本：7286 fills / 7283 settled、4346 wins，净 P&L `-$1,812.145703`、fees `$897.572863`、slippage `$56.342786`、cost `$34,501.379403`，accuracy `59.6732%`、ROI `-5.2524%`、Brier `0.238061`；每笔平均 P&L `-$0.248819`，普通近似 95% CI `[-$0.336718,-$0.160919]`。
+- 相比上轮 7063 settled：新增 220 笔，累计 P&L 再降 `$16.404010`，fees 增 `$27.567808`、slippage 增 `$1.359104`、cost 增 `$1,026.228410`；ROI 从 `-5.3644%` 小幅回升到 `-5.2524%`，Brier 从 `0.238432` 降到 `0.238061`。累计收益和每笔 P&L CI 仍明确为负。
+
+价格区间：
+
+| intended ask | n | accuracy | 净 P&L | ROI | Brier |
+|---|---:|---:|---:|---:|---:|
+| <0.40 | 51 | 31.3725% | -$10.310401 | -4.7738% | 0.289229 |
+| 0.40–0.50 | 789 | 43.3460% | -$281.285217 | -7.7390% | 0.264309 |
+| 0.50–0.60 | 2423 | 50.2683% | -$732.278874 | -6.4650% | 0.264564 |
+| 0.60–0.70 | 1898 | 60.8008% | -$463.634120 | -5.1293% | 0.249222 |
+| >=0.70 | 2122 | 76.1546% | -$324.637092 | -3.1564% | 0.186826 |
+
+- 方向：UP n=3415、accuracy `59.4729%`、P&L `-$864.482512`、ROI `-5.3409%`、Brier `0.239456`；DOWN n=3868、accuracy `59.8501%`、P&L `-$947.663192`、ROI `-5.1742%`、Brier `0.236829`。两方向的 P&L 95% CI 均完全为负。
+- selected probability：`0.50–0.60` n=1442、ROI `-9.3514%`；`0.60–0.70` n=2351、ROI `-5.2602%`；`0.70–0.80` n=1832、ROI `-4.4256%`；`>=0.80` n=1658、ROI `-2.7420%`。所有标准概率桶的点估计仍为负，不得回改冻结 holdout。
+- observer arrival latency P50/P95/max `720.275/2398.797/9951.273ms`，这是历史信号到模拟到达盘口延迟，不是 RTT。`<=100ms` 仍为 n=240、ROI `-0.2032%`、每笔 P&L CI `[-$0.507393,+$0.487653]`；`100–500/500–1000/1000–2000/>2000ms` ROI 分别为 `-8.7654%/-3.3135%/-3.7053%/-4.1274%`。所有延迟桶点估计为负。
+
+### 验证、决定与下一轮唯一优先项
+
+- 本轮没有明确、可复现、低风险的软件浪费支持修改。freshness 降级已无重启自然恢复，reconnect 和 warning 未增加；放宽 freshness、改重连、改变 executor、指标窗口或路由都会混淆现有证据。
+- 归属未明的 `fastbot.py` / `tests/test_fastbot.py` timing/bucket 诊断继续受到保护。本轮不调用 `deploy/push.sh`，不重启服务，不提交或推送。
+- `P95<100ms`：**当前未达成，稳定性也未达成**；最终完整路径 `383.07–390.37ms`，本轮跟踪最高 `632.72ms`。收益证据：**未达标**；7283 笔费用、滑点和延迟后 ROI `-5.2524%`，每笔 P&L 95% CI 完全低于 0。
+- 最新可验证教训：相同 PID、零重启下再次观察到高调度压力、event-loop 尾部和 strict freshness 失败共现，并在压力期间由 4/4 降到 2/4 后自然恢复；这加强共现证据但不消除既有弱瞬时相关和反向变化，所以仍不能作唯一因果或付费扩容结论。
+- 下一轮唯一优先项：先明确 `fastbot.py` / `tests/test_fastbot.py` timing/bucket 诊断归属；归属确认后再做四连接 IPv6 `/time` sidecar 的主探针同相与半 cadence 错相对照。归属仍不明时继续只读采样，不部署、不改 executor、不强制 IPv4、不建议购买机器。
+
+## 2026-07-31 11:48 JST — 路径再次快速换挡，observer 负期望未改变
+
+### 约束、工作区与服务
+
+- 本轮完整读取自动化记忆、`AGENTS.md`、`README.md`、`HANDOFF.md` 和 `FAST_MARKET_MEMORY.md`。SSH 使用工作站覆盖密钥，没有输出或修改任何坐标、密钥或秘密。
+- 分支仍为 `main...origin/main`，运行前已有五个修改文件：三份自动化研究文档，以及归属不明的 `fastbot.py` / `tests/test_fastbot.py` monotonic phase 与 TTFB bucket 诊断。`git diff --check` 通过；所有既有改动均受保护，不暂存、提交、推送或部署。
+- 运行时保持严格 `SHADOW`。champion 继续永久 `portfolio_incident_latched`；冻结 challenger `favorite-price-holdout-v1` 继续永久 `challenger_portfolio_daily_loss_gate`。没有钱包私钥、真实订单、策略、holdout、事故锁、freshness、指标口径、路由、采样频率或云资源变更。
+- 第一次 SSH 服务发现和第一次 10 秒资源配对均在握手阶段超时，未执行远端命令、未产生数据或状态变更；各自重试成功。
+- 三个 systemd user 服务均为 `active/running`，main/challenger/dashboard PID 继续为 `170952/113705/172845`，`NRestarts=0`；各服务最近 500 行 warning 计数均为 0。累计 RTDS/market reconnect 仍为 BTC `0/0`、ETH `2/0`、SOL `1/4`、XRP `2/1`。
+
+### API、完整路径与 10 秒资源同时点
+
+- 初始聚合 API 捕获于 `2026-07-31T02:44:38.158Z`：`ready=true`、4/4 execution engines online、16 lanes、0 champion positions，state age BTC/ETH/SOL/XRP `0.473/0.656/1.202/0.880s`。
+- 原始完整 240 样本如下；可控路径仍按 `HTTP P95 + event-loop P95 + decision P95`，官方 delay 单列：
+
+| Asset | HTTP P50/P95/max ms | queue P50/P95/max ms | socket TTFB P50/P95/max ms | body P95/max ms | event-loop P50/P95/max ms | decision P50/P95/max ms | path/ACK floor P95 ms |
+|---|---|---|---|---|---|---|---:|
+| BTC | 78.55 / 159.16 / 245.89 | 0.46 / 80.56 / 240.63 | 78.51 / 159.14 / 245.87 | 0.03 / 58.06 | 35.74 / 140.91 / 388.38 | 0.04 / 0.10 / 76.65 | 300.17 |
+| ETH | 78.93 / 161.26 / 321.50 | 0.60 / 80.16 / 280.57 | 78.92 / 161.25 / 321.48 | 0.03 / 20.05 | 36.28 / 140.90 / 388.38 | 0.04 / 0.11 / 8.44 | 302.27 |
+| SOL | 78.98 / 160.71 / 320.89 | 0.44 / 82.47 / 240.01 | 78.97 / 160.69 / 320.88 | 0.03 / 0.12 | 37.10 / 139.07 / 388.37 | 0.03 / 0.09 / 14.73 | 299.87 |
+| XRP | 79.09 / 161.49 / 469.65 | 0.75 / 126.49 / 316.35 | 79.08 / 161.47 / 469.63 | 0.03 / 30.34 | 38.00 / 139.07 / 388.37 | 0.03 / 0.08 / 0.30 | 300.64 |
+
+- 四路 platform taker delay 均为 `0ms enabled+verified`，没有混入可控路径；历史 `ARRIVAL AVG` 没有被当作当前 RTT。
+- `2026-07-31T02:45:49Z–02:45:59Z` 的远端 10.000 秒资源窗：aggregate steal `60.18%`、iowait `1.65%`；main/challenger/dashboard 单核 CPU `94.20/6.30/0.00%`。MemAvailable `147,619,840 / 434,307,072B`，swap 使用 `158,740,480 / 1,073,737,728B`，末端 load average `1.67/1.27/1.02`。
+- 资源窗后的 `02:46:13Z` API 仍 `ready=true`、4/4 online、最大 state age `0.881s`，但路径已在同 PID、零重启下升至 BTC/ETH/SOL/XRP `458.64/460.73/461.40/478.77ms`；HTTP P95 `159.23–162.18ms`、event-loop P95 `299.29–316.48ms`。
+- 随后 `02:46:26Z–02:46:53Z` 的 8 次跟踪全部 `ready=true`、4/4 online，最大 state age `0.960–2.321s`；路径先降到 `302.53–382.55ms`，再收于 `378.32–382.00ms`。没有 strict freshness 失败，也没有任何 `<100ms` 快照。
+- 验证结束后的 `02:52:10Z` 最终健康核对仍为 `ready=true`、4/4 online、最大 state age `1.280s`，路径 `382.62–384.45ms`；champion/challenger 事故锁保持不变。持续推进的 API observer 已到 7741 settled，本轮统计比较仍固定使用 `02:48:00Z` 的只读 SQL 快照。
+- 相比上一轮最终 `461.77–480.82ms`，本轮初始完整窗自然回落到约 `300–302ms`，资源窗后又升到约 `459–479ms`，随后再次降到约 `302–383ms`。同一 240 样本滑动口径在数十秒内反向换挡，而资源只有一个 10 秒点；它继续否定“用端点 steal/main CPU 唯一解释路径”的做法，不支持改 executor、强制 IPv4 或付费扩容。
+- 本轮不重复 IPv4 warm probe：主进程实际使用 IPv6，已有双栈和完整 IPv6 sidecar 没有稳定 IPv4 优势；当前阻塞仍是归属未明的主探针相位诊断，短 IPv4 RTT 不会回答相位或 event-loop 问题。
+
+### 账本、收益、校准与延迟
+
+- champion 仍为 12 fills / 12 settled / 3 wins，净 P&L `-$22.209812`、fees `$1.602611`、slippage `$0.338621`、cost `$39.036812`、ROI `-56.8945%`；每笔 P&L 95% CI `[-$3.162969,-$0.538666]`，latency P50/P95/max `40.423/59.633/73.991ms`。equity `$7.790189`、0 positions，事故锁未动。
+- 冻结 challenger 仍为 6/6 settled、3 wins，净 P&L `-$6.512921`、fees `$0.521856`、slippage `$0.050034`、cost `$23.778521`、ROI `-27.3899%`；每笔 P&L CI `[-$3.657492,+$1.486519]`，latency P50/P95/max `721.601/7479.022/9438.540ms`。API runtime `155.533h`，仍仅 6/500 笔和 155.533/336 小时，`eligible=false` 且永久 HALTED；没有回改参数或重置账本。
+- `2026-07-31T02:48:00Z` 直接以 SQLite `mode=ro` 读取四个 observer 账本：7742 fills / 7736 settled、4592 wins，净 P&L `-$2,066.082716`、fees `$954.751459`、slippage `$58.936430`、cost `$36,623.939016`，accuracy `59.3588%`、ROI `-5.6413%`、Brier `0.239125`；每笔平均 P&L `-$0.267074`，普通近似 95% CI `[-$0.352478,-$0.181670]`。
+- 相比上一轮 7511 settled：新增 225 笔，累计 P&L 再降 `$91.293993`，fees 增 `$28.790464`、slippage 增 `$1.294815`、cost 增 `$1,057.417692`；ROI 从 `-5.5524%` 恶化到 `-5.6413%`，Brier 从 `0.239180` 微降到 `0.239125`。累计收益和每笔 P&L CI 仍明确为负。
+
+价格区间：
+
+| intended ask | n | accuracy | 净 P&L | ROI | Brier |
+|---|---:|---:|---:|---:|---:|
+| <0.40 | 52 | 32.6923% | -$3.037183 | -1.3761% | 0.287291 |
+| 0.40–0.50 | 842 | 43.5867% | -$277.114583 | -7.1406% | 0.263657 |
+| 0.50–0.60 | 2594 | 49.6530% | -$909.133518 | -7.5066% | 0.266307 |
+| 0.60–0.70 | 2011 | 60.4177% | -$546.584403 | -5.7109% | 0.250897 |
+| >=0.70 | 2237 | 76.2181% | -$330.213029 | -3.0462% | 0.186670 |
+
+- 方向：UP n=3633、accuracy `58.9871%`、P&L `-$1,005.839744`、ROI `-5.8441%`、Brier `0.241237`；DOWN n=4103、accuracy `59.6880%`、P&L `-$1,060.242972`、ROI `-5.4616%`、Brier `0.237256`。两方向的每笔 P&L CI 均完全低于 0。
+- selected probability：`0.50–0.60` n=1534、ROI `-9.3252%`；`0.60–0.70` n=2516、ROI `-6.2968%`；`0.70–0.80` n=1942、ROI `-4.5009%`；`>=0.80` n=1744、ROI `-2.8871%`。所有标准概率桶点估计仍为负，不得回改冻结 holdout。
+- observer arrival latency P50/P95/max `722.448/2476.697/9951.273ms`，这是历史信号到模拟到达盘口延迟，不是 RTT。`<=100ms` n=241、ROI `-0.0367%` 且每笔 P&L CI `[-$0.497491,+$0.493926]`；`100–500/500–1000/1000–2000/>2000ms` ROI 分别为 `-9.0769%/-3.6668%/-3.7996%/-6.5599%`。所有延迟桶点估计为负；`>2000ms` CI 上界仅略跨 0，不能作为推广证据。
+
+### 验证、决定与下一轮唯一优先项
+
+- 当前精确工作区通过 41 项 Fast tests、前端 validator 和 13 个 Fast Python 模块 `py_compile`；文档更新后再次执行 `AGENTS.md`/`FAST_MARKET_MEMORY.md` 同步检查与 `git diff --check`。
+- 本轮唯一假设是“上一轮约 462–481ms 的路径是否已自然恢复并稳定低于 100ms”。验证结果：初始虽自然回落到约 `300–302ms`，随后在同 PID、零重启下升到 `459–479ms` 再降到 `302–383ms`；当前目标与稳定性目标均失败。
+- 没有明确、可复现、低风险的软件浪费支持修改。归属未明的 timing/bucket 诊断继续受到保护；不调用 `deploy/push.sh`，不重启服务，不提交或推送。
+- `P95<100ms`：**当前未达成，稳定性也未达成**。收益证据：**未达标**；7736 笔费用、滑点和延迟后 ROI `-5.6413%`，每笔 P&L 95% CI 完全低于 0。
+- 最新可验证教训：相同 PID、零重启、4/4 online 下，路径可在约一分钟内从 `300–302ms` 升到 `459–479ms`、再回到 `302–383ms`；单个 10 秒资源点与 240 样本滑动路径不等尺度。observer 新增 225 笔又亏 `$91.29`，所有标准价格、方向、概率与延迟桶的 ROI 点估计仍为负，高胜率没有转化为正期望。
+- 下一轮唯一优先项：先明确本地 `fastbot.py` / `tests/test_fastbot.py` timing/bucket 诊断归属；归属确认后再做四连接 IPv6 `/time` sidecar 的主探针同相与半 cadence 错相对照。归属仍不明时继续只读采样，不部署、不改 executor、不强制 IPv4、不建议购买机器。
+
+## 2026-07-31 23:55 JST — 高压力同窗再次触发 freshness 降级，正期望仍未出现
+
+### 约束、工作区与服务
+
+- 本轮完整读取 `AGENTS.md`、`README.md`、`HANDOFF.md`、`FAST_MARKET_MEMORY.md` 和自动化记忆。`CODEX_HOME` 在 PowerShell 中为空，因此按工作站默认位置 `C:\Users\<user>\.codex` 读取既有记忆；未输出、修改或提交 SSH 坐标、密钥或秘密。
+- 分支仍为 `main...origin/main`。运行前已有九个 tracked 修改文件和未跟踪的 `fast_calibration_challenger.yaml`：除三份研究文档和原 timing/bucket 诊断外，还包括本地已实现但未部署的 calibrated challenger、service、push whitelist 与测试改动。全部按用户/前序工作保护；本轮不暂存、提交、推送、部署或重启。
+- 运行时保持严格 `SHADOW`，16 lanes，champion 0 positions 且永久 `portfolio_incident_latched`；`favorite-price-holdout-v1` 继续永久 `challenger_portfolio_daily_loss_gate`。本地 `calibrated-probability-holdout-v1` 仍未部署、未开始收集。没有钱包私钥、真实订单、规则、事故锁、freshness、指标口径、路由、采样频率或云资源变更。
+- 三个 systemd user 服务在资源窗前后均为 `active/running`，main/challenger/dashboard PID 保持 `170952/113705/172845`，`NRestarts=0`；各服务最近 500 行告警关键词计数均为 0。第一次 SSH 在握手阶段超时，没有执行远端命令；第二次资源脚本在打印全部核心指标后因末尾 Bash 语法错误退出，随后独立服务检查确认 PID、重启数和状态未变。
+
+### API、路径、freshness 与 10 秒资源窗
+
+- `2026-07-31T14:44:10.539Z` 初始 API 为 `ready=true`、4/4 online，state age `0.237–2.155s`。四路均为完整 240 样本；可控路径继续按 `HTTP P95 + event-loop P95 + decision P95`，官方 delay 单列：
+
+| Asset | HTTP P50/P95/max ms | queue P50/P95/max ms | socket TTFB P50/P95/max ms | body P50/P95/max ms | event-loop P50/P95/max ms | decision P50/P95/max ms | path P95 ms |
+|---|---|---|---|---|---|---|---:|
+| BTC | 79.17 / 210.76 / 472.58 | 0.86 / 112.30 / 475.55 | 79.15 / 210.74 / 472.56 | 0.02 / 0.03 / 3.13 | 41.73 / 279.39 / 537.14 | 0.04 / 0.09 / 52.29 | 490.24 |
+| ETH | 79.22 / 161.48 / 319.10 | 1.01 / 153.32 / 396.96 | 79.20 / 161.46 / 319.08 | 0.02 / 0.03 / 0.31 | 49.30 / 294.91 / 942.69 | 0.03 / 0.08 / 83.81 | 456.47 |
+| SOL | 79.27 / 160.37 / 316.14 | 1.06 / 154.90 / 475.37 | 79.26 / 160.35 / 316.12 | 0.02 / 0.03 / 49.17 | 49.30 / 293.64 / 942.69 | 0.04 / 0.09 / 76.45 | 454.10 |
+| XRP | 79.05 / 160.11 / 406.11 | 0.77 / 79.94 / 312.71 | 79.01 / 160.09 / 406.09 | 0.02 / 0.03 / 41.82 | 51.46 / 293.64 / 942.69 | 0.02 / 0.07 / 78.47 | 453.82 |
+
+- 四路 platform taker delay 均为 `0ms enabled+verified`，没有混入可控路径。累计 RTDS/market reconnect 仍为 BTC `1/0`、ETH `3/1`、SOL `2/5`、XRP `2/2`；历史 `ARRIVAL AVG` 没有被当作当前 RTT。
+- `2026-07-31T14:45:24.818Z–14:45:38.823Z` 的 10.351 秒远端资源窗：aggregate steal `64.82%`、iowait `3.14%`；main/challenger/dashboard 单核 CPU `108.50/2.03/0.00%`。MemAvailable `138,022,912 / 434,307,072B`，swap 使用 `149,917,696 / 1,073,737,728B`，末端 load `1.00/0.87/0.85`。
+- 窗后 `14:46:03Z` API 仍为 `ready=true`、4/4 online，但路径升至 BTC/ETH/SOL/XRP `666.22/625.27/624.29/624.14ms`；HTTP P95 `160.42–202.47ms`、event-loop P95 `463.67–463.69ms`、decision P95 `0.05–0.10ms`。这是高调度压力与高滑动尾部的又一次共现，但 10 秒资源窗与 240 样本滑动 P95 不同尺度，仍不能证明唯一因果或支持付费扩容。
+- `14:50:07Z–14:50:43Z` 的 8 次跟踪中，第 2 次短暂为 `ready=false`、3/4 online、最大 state age `3.231s`；其余 7 次为 4/4，随后无需重启恢复。路径范围 `310.30–546.03ms`，终点 `538.85–546.03ms`；没有任何 `<100ms` 快照。
+- 验证结束后的 `14:54:56Z` 最终健康核对仍为 `ready=true`、4/4 online、最大 state age `1.201s`，路径又在同 PID、零重启下自然降到 BTC/ETH/SOL/XRP `241.27/240.84/240.77/243.83ms`。持续推进的 API observer 已到 8181 settled、P&L `-$2,220.736801`；本轮统计比较仍固定使用 `14:48:40Z` 的只读 SQL 快照。
+- 本轮不重复 IPv4 warm probe：主进程实际走 IPv6，既有双栈和完整 IPv6 sidecar 没有稳定 IPv4 优势；当前的 event-loop/freshness 与主探针相位问题不会由短 IPv4 RTT 回答。
+
+### 账本、收益、校准与延迟
+
+- champion 只读 SQL 仍为 12 fills / 12 settled / 3 wins，净 P&L `-$22.209812`、fees `$1.602611`、slippage `$0.338621`、cost `$39.036812`、ROI `-56.8945%`，每笔 P&L 95% CI `[-$3.162969,-$0.538666]`；latency P50/P95/max `40.423/59.633/73.991ms`。equity `$7.790188`、0 positions，事故锁未动。
+- 冻结 favorite challenger 仍为 6/6 settled、3 wins，净 P&L `-$6.512921`、fees `$0.521856`、slippage `$0.050034`、cost `$23.778521`、ROI `-27.3899%`，每笔 P&L CI `[-$3.657492,+$1.486519]`；latency P50/P95/max `721.601/7479.022/9438.540ms`。API runtime `167.621h`，仍仅 6/500 且 `eligible=false`、永久 HALTED；没有回改参数或重置账本。
+- `2026-07-31T14:48:40Z` 直接以 SQLite `mode=ro` 读取四个 observer 账本：9640 candidates / 8181 fills / 8179 settled、4850 wins，净 P&L `-$2,220.137485`、fees `$1,009.390778`、slippage `$62.221634`、cost `$38,709.467685`，accuracy `59.2982%`、ROI `-5.7354%`、Brier `0.239158`；平均 selected probability `70.9623%`，高于实际 accuracy `11.6640pp`；每笔平均 P&L `-$0.271444`，普通近似 95% CI `[-$0.354483,-$0.188404]`。
+- 相对自动化记忆中最近的同口径 8099-settled SQL 快照：新增 80 笔，累计 P&L 再降 `$25.046966`，fees 增 `$9.848619`、slippage 增 `$1.077597`、cost 增 `$378.178966`；ROI 从 `-5.7266%` 略恶化到 `-5.7354%`，Brier 从 `0.239386` 略改善到 `0.239158`。这些微小变化不改变负期望结论。
+
+价格区间：
+
+| intended ask | n | accuracy | 净 P&L | ROI | Brier | 每笔 P&L 95% CI |
+|---|---:|---:|---:|---:|---:|---:|
+| <0.40 | 52 | 32.6923% | -$3.037183 | -1.3761% | 0.287291 | [-$1.794246,+$1.677431] |
+| 0.40–0.50 | 904 | 43.5841% | -$293.247622 | -7.0494% | 0.263653 | [-$0.642174,-$0.006604] |
+| 0.50–0.60 | 2738 | 49.3791% | -$1,022.441198 | -8.0022% | 0.266879 | [-$0.536517,-$0.210335] |
+| 0.60–0.70 | 2118 | 60.4816% | -$563.721455 | -5.5906% | 0.250909 | [-$0.421221,-$0.111094] |
+| >=0.70 | 2367 | 76.2991% | -$337.690028 | -2.9445% | 0.186163 | [-$0.249050,-$0.036282] |
+
+- 方向：UP n=3853、accuracy `58.5258%`、P&L `-$1,216.683802`、ROI `-6.6675%`、Brier `0.242993`、CI `[-$0.437618,-$0.193934]`；DOWN n=4326、accuracy `59.9861%`、P&L `-$1,003.453684`、ROI `-4.9041%`、Brier `0.235741`、CI `[-$0.345415,-$0.118502]`。
+- selected probability：`0.50–0.60` n=1635、ROI `-9.2278%`、CI `[-$0.658178,-$0.195245]`；`0.60–0.70` n=2658、ROI `-6.6512%`、CI `[-$0.470928,-$0.152231]`；`0.70–0.80` n=2035、ROI `-4.5706%`、CI `[-$0.368706,-$0.067651]`；`>=0.80` n=1851、ROI `-2.7862%`、CI `[-$0.249419,-$0.021022]`。四个冻结校准对应桶仍全部过度自信且净收益 CI 完全低于 0。
+- observer arrival latency P50/P95/max `797.649/2535.295/11199.478ms`，这是历史信号到模拟到达盘口延迟，不是 RTT。`<=100/100–500/500–1000/1000–2000/>2000ms` ROI 分别为 `-0.0367%/-8.6904%/-4.1459%/-4.3165%/-6.2678%`；`<=100ms` 与 `>2000ms` 的 CI 跨 0，其余三桶 CI 完全低于 0。所有延迟桶点估计仍为负。
+
+### 验证、决定与下一轮唯一优先项
+
+- 当前精确工作区通过 44 项 Fast tests、前端 validator 和 13 个 Fast Python 模块 `py_compile`；`AGENTS.md` 嵌入正文与 `FAST_MARKET_MEMORY.md` 在统一换行后逐字一致。初次字节级同步检查仅因 CRLF/LF 差异报错，正文没有差异；最终校验改用规范化换行，并再次执行 `git diff --check`。
+- 本轮没有明确、可复现、低风险的软件浪费支持修改。工作区含归属未明且会被 `deploy/push.sh` 一并包含的运行代码与部署改动，因此不调用部署脚本、不重启、不提交、不推送。
+- `P95<100ms`：**当前未达成，稳定性也未达成**；初始完整路径 `453.82–490.24ms`，资源窗后 `624.14–666.22ms`，短跟踪终点 `538.85–546.03ms`，最终健康核对虽自然回落仍为 `240.77–243.83ms`。收益证据：**未达标**；8179 笔费用、滑点和延迟后 ROI `-5.7354%`，每笔 P&L 95% CI 完全低于 0。
+- 最新可验证教训：高 steal/main CPU、event-loop 尾部和一次 strict freshness 失败再次共现，但相同服务状态下滑动路径仍快速反向变化，不能把单个 10 秒资源点当作唯一解释。新增 80 笔再亏 `$25.05`；全部标准分桶的 ROI 点估计为负，校准/延迟改善仍必须通过独立自然时间 holdout，而不能回头筛选历史样本。
+- 下一轮唯一优先项：明确 `fastbot.py` / `tests/test_fastbot.py` timing/bucket 诊断以及 calibrated challenger 整组改动的归属。只有归属明确后，才在 0 pending/0 position 安全窗口仅用 `deploy/push.sh` 部署已冻结实验；否则继续只读观测，不改 executor、freshness、路由或事故锁。
+
+## 2026-07-31 22:06 JST — 冻结概率校准 challenger 已实现，部署受工作区归属阻塞
+
+### 原始证据与假设
+
+- `2026-07-31T13:01:52.659322Z` 远端只读 SQL 快照包含 8114 笔官方结算。固定 selected-probability 桶的 `n/wins` 为：`0.50–0.60 1627/714`、`0.60–0.70 2632/1375`、`0.70–0.80 2017/1281`、`0.80–1.00 1838/1437`。
+- 使用预先声明的 Beta(1,1) Laplace 平滑后，四个冻结校准概率为 `0.438919583 / 0.522399393 / 0.634967806 / 0.781521739`。相对模型原始桶值，它们削减约 9–14pp 的过度自信；实验假设是：先校准概率、再保留原费用和滑点缓冲重算净 edge，可以拒绝虚假 edge。
+- 自然时间 holdout 冻结点固定为 `2026-07-31T13:03:00Z`。训练快照只定义映射；只有冻结点后创建的 observer 到达盘口记录可进入独立账本，不回改或复用 `favorite-price-holdout-v1` 的账本和参数。
+
+### 实现、验证与失败
+
+- 新增 `fast_calibration_challenger.yaml`，使用独立 `$30` shadow 账本、状态和事故锁；校准覆盖外 fail-closed，校准后净 edge `<4pp` 拒绝。`fastchallenger.py` 保持无校准配置时的旧语义，并可在同一低开销进程内调度多个冻结配置；新实验轮询为 10 秒，不接行情、不接钱包、不改变 live mode。
+- 状态新增 Brier、accuracy、平均 selected probability、calibration gap 和每笔 P&L 95% CI；聚合 SQL 只在 settled 数变化时重新计算，避免无意义全表扫描。
+- 新增 3 项测试覆盖：校准概率与 edge 重算、原始 edge 在校准后消失时拒绝、训练截止晚于冻结点时启动失败。精确工作区共 44 项 Fast tests 通过，前端 validator 通过，13 个 Fast Python 模块 `py_compile` 通过，`git diff --check` 通过。
+- 当前 API 于 `2026-07-31T13:06:09.871Z` 为 `ready=true`、4/4 online；可控路径 BTC/ETH/SOL/XRP `355.21/431.09/355.58/354.60ms`，HTTP P95 `159.35–235.83ms`、event-loop P95 `195.16–195.17ms`、decision P95 `0.08–0.20ms`，仍未达 `<100ms`。API observer 已到 8117 settled、净 P&L `-$2231.170592`、ROI `-5.8080%`；收益证据仍未达标。
+- 本轮服务/资源 SSH 核对再次超时且未产生数据或远端状态变更。更重要的阻塞是工作区仍含归属不明的 `fastbot.py` / `tests/test_fastbot.py` timing/bucket 改动；因此未调用 `deploy/push.sh`、未重启、未提交、未推送，校准 holdout 尚未实际开始收集。
+
+### 结果与下一轮唯一优先项
+
+- 最新可验证教训：目前 4pp raw edge 门槛小于历史校准偏差；只加手续费或追求更低延迟无法修复这个定价偏差。冻结校准后重新计算 edge 能在不放宽风控的前提下显式拒绝这类假信号，但是否具有正期望必须等待自然时间 500 笔/336 小时 holdout，不能用训练样本或拒绝率替代。
+- 下一轮唯一优先项：明确 `fastbot.py` / `tests/test_fastbot.py` 的改动归属。归属解决后，复核主引擎 0 pending/0 position 安全窗口，只使用 `deploy/push.sh` 部署并启动冻结校准实验；冻结参数不得再改。归属未解决前不部署、不提交、不推送。
+
+## 2026-07-31 05:47 JST — 路径快速换挡但持续不达标，observer 负期望继续扩大
+
+### 约束、工作区与服务
+
+- 本轮完整读取自动化记忆、`AGENTS.md`、`README.md`、`HANDOFF.md` 和 `FAST_MARKET_MEMORY.md`。SSH 使用工作站覆盖密钥；没有输出或修改任何坐标、密钥或秘密。
+- 分支仍为 `main...origin/main`，运行前已有五个修改文件：三份自动化研究文档，以及归属不明的 `fastbot.py` / `tests/test_fastbot.py` monotonic phase 与 TTFB bucket 诊断。所有既有改动均被保护；本轮只追加三份研究文档，不暂存、提交、推送或部署。
+- 运行时保持严格 `SHADOW`。champion 继续永久 `portfolio_incident_latched`；冻结的 `favorite-price-holdout-v1` 继续永久 `challenger_portfolio_daily_loss_gate`。没有钱包私钥、真实订单、策略、holdout、事故锁、freshness、指标口径、路由、采样频率或云资源变更。
+- 三个 systemd user 服务均为 `active/running`，main/challenger/dashboard PID 继续为 `170952/113705/172845`，`NRestarts=0`；各服务最近 500 行 warning 计数均为 0。累计 RTDS/market reconnect 仍为 BTC `0/0`、ETH `2/0`、SOL `1/4`、XRP `2/1`。
+
+### API、完整路径与 10 秒资源同时点
+
+- 初始聚合 API 捕获于 `2026-07-30T20:40:55.026Z`：`ready=true`、4/4 execution engines online、16 lanes，state age `0.442–1.561s`。完整 240 样本指标如下；路径仍按 `HTTP P95 + event-loop P95 + decision P95`，官方 delay 单列：
+
+| Asset | HTTP P50/P95/max ms | queue P50/P95/max ms | socket TTFB P50/P95/max ms | body P95/max ms | event-loop P50/P95/max ms | decision P50/P95/max ms | path/ACK floor P95 ms |
+|---|---|---|---|---|---|---|---:|
+| BTC | 77.52 / 158.74 / 320.01 | 0.25 / 68.19 / 159.30 | 77.50 / 158.72 / 320.00 | 0.03 / 4.84 | 39.09 / 258.04 / 859.04 | 0.06 / 0.18 / 78.20 | 416.96 |
+| ETH | 78.23 / 159.95 / 316.66 | 0.40 / 78.65 / 155.70 | 78.22 / 159.93 / 316.64 | 0.03 / 0.73 | 39.09 / 258.04 / 859.04 | 0.06 / 0.14 / 80.26 | 418.13 |
+| SOL | 78.41 / 157.13 / 240.25 | 0.34 / 78.25 / 154.82 | 78.39 / 157.12 / 240.23 | 0.03 / 19.81 | 38.48 / 257.94 / 859.04 | 0.03 / 0.09 / 76.17 | 415.16 |
+| XRP | 78.01 / 135.33 / 237.86 | 0.38 / 77.44 / 159.19 | 77.84 / 135.31 / 237.84 | 0.03 / 52.32 | 38.55 / 258.05 / 859.04 | 0.03 / 0.09 / 35.90 | 393.47 |
+
+- 四路 platform taker delay 均为 `0ms enabled+verified`，没有混入可控路径；历史 `ARRIVAL AVG` 没有被当作当前 RTT。
+- 第一次远端 10 秒配对尝试在 SSH keepalive 阶段超时，没有输出或远端状态变更。第二次成功窗口为 `2026-07-30T20:43:21Z–20:43:31Z`，时长 `10.000s`：aggregate steal `58.29%`、iowait `1.20%`；main/challenger/dashboard 单核 CPU `89.80/6.10/3.30%`。MemAvailable `166,354,944 / 434,307,072B`，swap 使用 `181,006,336 / 1,073,737,728B`，末端 load average `1.94/1.32/0.99`。
+- 配对窗末端 API 仍 `ready=true`、4/4 online、state age `0.963–1.442s`，但路径已在零重启下自然降至 BTC/ETH/SOL/XRP `302.34/319.13/301.51/300.19ms`。这一端点不能单独归因于 steal 或 CPU，因为路径是 240 样本滑动 P95，而资源窗仅 10 秒。
+- 随后 `20:45:18Z–20:45:55Z` 的 8 次跟踪全部 `ready=true`、4/4 online，最大 state age `1.840s`；路径在 `298.66–515.70ms` 间快速换挡，终点为 `316.65–335.68ms`。没有 freshness 失败，但也没有任何 `<100ms` 快照。
+- 测试与文档更新后的 `20:49:54Z` 最终健康核对仍为 `ready=true`、4/4 online、state age `0.074–0.478s`，路径又升至 BTC/ETH/SOL/XRP `463.39/480.82/463.90/461.77ms`；HTTP P95 `158.27–177.28ms`、event-loop P95 `303.47ms`、decision P95 `0.03–0.08ms`。API 账本已继续推进到 7514 settled，本轮统计比较仍固定使用 `20:45:01Z` 的只读 SQL 快照。
+- 相比上轮最终 `383.07–390.37ms`，本轮初始路径略高且资产间更分散，随后自然下降再上升。约 `135–160ms` HTTP P95 与约 `258ms` event-loop P95 仍可叠加；短时资源点和后续反向变化继续不支持唯一调度因果、executor/IPv4 改动或付费扩容。
+- 本轮不重复 IPv4 warm probe：主进程实际使用 IPv6，已有双栈和完整 IPv6 sidecar 没有稳定 IPv4 优势；当前阻塞仍是归属未明的主探针相位诊断，短 IPv4 RTT 不会回答相位或 event-loop 问题。
+
+### 账本、收益、校准与延迟
+
+- champion 直读仍为 12 fills / 12 settled / 3 wins，净 P&L `-$22.209812`、fees `$1.602611`、slippage `$0.338621`、cost `$39.036812`、ROI `-56.8945%`，每笔 P&L 95% CI `[-$3.162969,-$0.538666]`；latency P50/P95/max `40.423/59.633/73.991ms`。equity `$7.790189`、0 positions，事故锁未动。
+- 冻结 challenger 直读仍为 6/6 settled、3 wins，净 P&L `-$6.512921`、fees `$0.521856`、slippage `$0.050034`、cost `$23.778521`、ROI `-27.3899%`，每笔 P&L CI `[-$3.657492,+$1.486519]`；latency P50/P95/max `721.601/7479.022/9438.540ms`。API runtime `149.471h`，仍仅 6/500 笔和 149.471/336 小时，`eligible=false` 且永久 HALTED；没有回改参数或重置账本。
+- `2026-07-30T20:45:01Z` 直接以 SQLite `mode=ro` 读取四个 observer 账本：7514 fills / 7511 settled、4464 wins，净 P&L `-$1,974.788723`、fees `$925.960995`、slippage `$57.641615`、cost `$35,566.521323`，accuracy `59.4328%`、ROI `-5.5524%`、Brier `0.239180`；每笔平均 P&L `-$0.262920`，普通近似 95% CI `[-$0.349549,-$0.176291]`。
+- 相比上轮 7283 settled：新增 228 笔，累计 P&L 再降 `$162.643020`，fees 增 `$28.388132`、slippage 增 `$1.298829`、cost 增 `$1,065.141920`；ROI 从 `-5.2524%` 恶化到 `-5.5524%`，Brier 从 `0.238061` 恶化到 `0.239180`。累计收益和每笔 P&L CI 仍明确为负。
+
+价格区间：
+
+| intended ask | n | accuracy | 净 P&L | ROI | Brier |
+|---|---:|---:|---:|---:|---:|
+| <0.40 | 52 | 32.6923% | -$3.037183 | -1.3761% | 0.287291 |
+| 0.40–0.50 | 814 | 43.6118% | -$267.048307 | -7.1204% | 0.263735 |
+| 0.50–0.60 | 2501 | 49.9000% | -$823.734443 | -7.0514% | 0.265533 |
+| 0.60–0.70 | 1957 | 60.3986% | -$534.293302 | -5.7351% | 0.250868 |
+| >=0.70 | 2187 | 75.9945% | -$346.675490 | -3.2714% | 0.188301 |
+
+- 方向：UP n=3524、accuracy `59.2509%`、P&L `-$916.116506`、ROI `-5.4872%`、Brier `0.240714`；DOWN n=3987、accuracy `59.5937%`、P&L `-$1,058.672217`、ROI `-5.6101%`、Brier `0.237823`。两方向的每笔 P&L CI 都完全低于 0。
+- selected probability：`0.50–0.60` n=1482、ROI `-9.2307%`；`0.60–0.70` n=2434、ROI `-5.9105%`；`0.70–0.80` n=1893、ROI `-4.5168%`；`>=0.80` n=1702、ROI `-3.1368%`。所有标准概率桶点估计仍为负，不得回改冻结 holdout。
+- observer arrival latency P50/P95/max `721.194/2428.909/9951.273ms`，这是历史信号到模拟到达盘口延迟，不是当前 RTT。`<=100ms` n=241、ROI `-0.0367%` 且每笔 P&L CI `[-$0.497491,+$0.493926]`；`100–500/500–1000/1000–2000/>2000ms` ROI 分别为 `-9.0867%/-3.4336%/-3.8113%/-6.0080%`。所有延迟桶点估计为负。
+
+### 验证、失败、决定与下一轮唯一优先项
+
+- 当前精确工作区通过 41 项 Fast tests、前端 validator 和 13 个 Fast Python 模块 `py_compile`。第一次 PowerShell 测试包装器把可执行文件路径当作赋值表达式执行，进入并退出了 Python REPL；它没有修改项目，随后用解析后的绝对可执行路径完整重跑并通过。文档追加后再次执行同步检查与 `git diff --check`。
+- 本轮没有明确、可复现、低风险的软件浪费支持修改。归属未明的 timing/bucket 诊断继续受到保护；不调用 `deploy/push.sh`，不重启服务，不提交或推送。
+- `P95<100ms`：**当前未达成，稳定性也未达成**；最终完整路径 `461.77–480.82ms`，8 次跟踪路径范围 `298.66–515.70ms`。收益证据：**未达标**；7511 笔费用、滑点和延迟后 ROI `-5.5524%`，每笔 P&L 95% CI 完全低于 0。
+- 最新可验证教训：同 PID、零重启下，完整滑动路径可在数分钟内从约 `393–418ms` 降至 `300–319ms`、升至 `496–516ms`、再回到约 `299–336ms`，同时始终 4/4 online。单个 10 秒资源点不能解释这种快速换挡；持续负 ROI 和全标准分桶负点估计也再次否定用高胜率或挑选子群声称正期望。
+- 下一轮唯一优先项：先明确 `fastbot.py` / `tests/test_fastbot.py` timing/bucket 诊断归属；归属确认后再做四连接 IPv6 `/time` sidecar 的主探针同相与半 cadence 错相对照。归属仍不明时继续只读观测，不部署、不改 executor、不强制 IPv4、不建议购买机器。
+
+## 2026-07-31 17:52 JST — 短暂 3/4 freshness 降级后恢复，路径与收益仍不达标
+
+### 约束、工作区与服务
+
+- 本轮完整读取 `AGENTS.md`、`README.md`、`HANDOFF.md`、`FAST_MARKET_MEMORY.md` 和自动化记忆；`AGENTS.md` 的同步正文与 memory 逐行一致。`CODEX_HOME` 在当前 PowerShell 环境为空，初次按空变量路径检查误判为缺失；随后使用工作站默认 `C:\Users\<user>\.codex` 位置找到并完整读取既有 `memory.md`。
+- `deploy/pi.env` 仅用于解析既有 SSH 坐标，未输出、修改或提交其内容；SSH 使用工作站覆盖密钥。分支仍为 `main...origin/main`，运行前已有 `AGENTS.md`、`FAST_MARKET_MEMORY.md`、`FAST_MARKET_RESEARCH_LOG.md`，以及归属不明的 `fastbot.py` / `tests/test_fastbot.py` timing/bucket 诊断改动。所有既有改动均受保护；本轮不暂存、提交、推送或部署。
+- 运行时保持严格 `SHADOW`，16 lanes，champion 0 positions 且永久 `portfolio_incident_latched`；冻结 challenger `favorite-price-holdout-v1` 继续永久 `challenger_portfolio_daily_loss_gate`。没有钱包私钥、真实订单、规则、事故锁、freshness、指标口径、路由、采样频率或云资源变更。
+- 三个 systemd user 服务在 `08:44:37Z`、`08:46:28Z` 和 `08:51:50Z` 检查中均为 `active/running`，main/challenger/dashboard PID 保持 `170952/113705/172845`，`NRestarts=0`；各服务最近 500 条 warning 均为 0。
+- SSH 本轮多次在握手阶段超时，均未执行远端命令；成功的服务发现中 `find` 通配符引用失效、成功的资源脚本在输出核心指标后因末尾 Bash 语法错误停止、最终日志关键词 grep 因远端引用失效未产生有效筛选结果。这些失败没有修改远端状态；服务状态、warning 计数、资源核心数据和只读 SQL 均由独立成功调用取得。
+
+### API、短暂降级与资源窗
+
+- `2026-07-31T08:43:34.787Z` 初始 API 为 `ready=true`、4/4 online；`08:44:56.081Z` 捕获到真实 strict freshness 降级：`ready=false`、3/4 online，XRP state age `3.201s`，其余资产 age `0.883–2.403s`。
+- 降级时四路均为完整 240 样本，可控路径按 `HTTP P95 + event-loop P95 + decision P95`，官方 delay 单列：
+
+| Asset | HTTP P50/P95/max ms | queue P50/P95/max ms | socket TTFB P50/P95/max ms | body P95/max ms | event-loop P50/P95/max ms | decision P50/P95/max ms | path/ACK floor P95 ms |
+|---|---|---|---|---|---|---|---:|
+| BTC | 77.82 / 158.91 / 241.65 | 0.41 / 79.95 / 317.54 | 77.80 / 158.89 / 241.63 | 0.03 / 1.12 | 76.41 / 562.20 / 7583.15 | 0.03 / 0.10 / 75.05 | 721.21 |
+| ETH | 78.29 / 156.88 / 291.02 | 0.34 / 79.27 / 271.34 | 78.28 / 156.85 / 291.00 | 0.03 / 0.08 | 76.88 / 562.21 / 7583.15 | 0.02 / 0.05 / 77.02 | 719.14 |
+| SOL | 78.08 / 158.15 / 322.93 | 0.33 / 80.05 / 316.60 | 78.01 / 158.13 / 322.91 | 0.03 / 0.84 | 76.97 / 562.20 / 7583.15 | 0.03 / 0.10 / 76.57 | 720.45 |
+| XRP | 77.88 / 156.04 / 325.09 | 0.34 / 78.70 / 237.76 | 77.86 / 156.02 / 325.08 | 0.03 / 0.15 | 75.97 / 562.20 / 7583.15 | 0.02 / 0.06 / 74.16 | 718.30 |
+
+- 四路 platform taker delay 均为 `0ms enabled+verified`，没有混入可控路径；历史 `ARRIVAL AVG` 没有被当作当前 RTT。
+- 累计 RTDS/market reconnect 为 BTC `1/0`、ETH `3/1`、SOL `2/5`、XRP `2/2`。相对上一轮的 BTC `0/0`、ETH `2/0`、SOL `1/4`、XRP `2/1`，新增分别为 `+1/0`、`+1/+1`、`+1/+1`、`0/+1`。服务无重启、warning 为 0 且 freshness 随后自动恢复，不支持据此放宽 freshness 或立即修改重连。
+- `08:46:28.578Z–08:46:40.982Z` 成功取得 10.005 秒资源核心窗：aggregate steal `60.18%`、iowait `1.26%`；main/challenger/dashboard 单核 CPU `95.05/5.30/0.00%`。MemAvailable `159,629,312 / 434,307,072B`，swap 使用 `163,471,360 / 1,073,737,728B`，末端 load `1.41/1.23/0.97`。脚本在打印这些数据后才因末尾语法错误停止，因此缺失同一 SSH 调用的 after service 行；`08:51:50Z` 的独立检查确认 PID、重启数和服务状态均未变。
+- 紧接资源窗后的 `08:46:56Z` API 已自然恢复 `ready=true`、4/4 online，路径 `298.55–301.29ms`。随后 `08:46:56Z–08:47:43Z` 的 10/10 跟踪全部 4/4 online，state age 不超过 `2.399s`，路径在 `278.05–397.95ms` 间快速换挡；没有任何 `<100ms` 快照。
+- `08:52:10Z` 最终 API 仍 `ready=true`、4/4 online，路径 BTC/ETH/SOL/XRP `377.26/378.23/377.76/376.74ms`：HTTP P95 `158.79–161.20ms`、event-loop P95 `216.25–217.88ms`、decision P95 `0.07–0.25ms`。同 PID、零重启下，约 562ms event-loop P95 已从滑动窗口退出，但路径仍未达标。
+- 文档与验证结束后的 `08:57:03Z` 最终健康核对仍为 `ready=true`、4/4 online，state age `0.398–1.430s`，路径又自然降到 BTC/ETH/SOL/XRP `302.51/304.07/303.61/301.24ms`。持续推进的 API observer 已到 7967 settled、P&L `-$2,160.200132`；本轮统计比较仍固定使用 `08:50:52Z` 的只读 SQL 快照。
+- 本轮不重复 IPv4 warm probe：主进程实际使用 IPv6，既有双栈和完整 IPv6 sidecar 没有稳定 IPv4 优势；当前阻塞仍是归属未明的主探针相位诊断，短 IPv4 RTT 不会回答相位、event-loop 或 freshness 问题。
+
+### 账本、收益、校准与延迟
+
+- champion 只读 SQL 仍为 12 fills / 12 settled / 3 wins，净 P&L `-$22.209812`、fees `$1.602611`、slippage `$0.338621`、cost `$39.036812`、ROI `-56.8945%`，每笔 P&L 95% CI `[-$3.162969,-$0.538666]`；latency P50/P95/max `40.423/59.633/73.991ms`。equity `$7.790188`、0 positions，事故锁未动。
+- 冻结 challenger 只读 SQL 仍为 6/6 settled、3 wins，净 P&L `-$6.512921`、fees `$0.521856`、slippage `$0.050034`、cost `$23.778521`、ROI `-27.3899%`，每笔 P&L CI `[-$3.657492,+$1.486519]`；latency P50/P95/max `721.601/7479.022/9438.540ms`。API runtime `161.660h`，仍仅 6/500 笔和 161.660/336 小时，`eligible=false` 且永久 HALTED；没有回改参数或重置账本。
+- `2026-07-31T08:50:52Z` 直接以 SQLite `mode=ro` 读取四个 observer 账本：9385 candidates / 7965 fills / 7962 settled、4722 wins，净 P&L `-$2,156.343629`、fees `$982.529132`、slippage `$60.402513`、cost `$37,688.532829`，accuracy `59.3067%`、ROI `-5.7215%`、Brier `0.239281`；每笔平均 P&L `-$0.270829`，普通近似 95% CI `[-$0.355042,-$0.186617]`。
+- 相比上一轮 7736 settled：新增 226 笔，累计 P&L 再降 `$90.260913`，fees 增 `$27.777673`、slippage 增 `$1.466083`、cost 增 `$1,064.593813`；ROI 从 `-5.6413%` 恶化到 `-5.7215%`，Brier 从 `0.239125` 恶化到 `0.239281`。平均 selected probability `70.9725%`，比实际 accuracy 高 `11.6658pp`，继续显示整体过度自信。
+
+价格区间：
+
+| intended ask | n | accuracy | 净 P&L | ROI | Brier |
+|---|---:|---:|---:|---:|---:|
+| <0.40 | 52 | 32.6923% | -$3.037183 | -1.3761% | 0.287291 |
+| 0.40–0.50 | 874 | 43.7071% | -$273.796738 | -6.8091% | 0.263409 |
+| 0.50–0.60 | 2668 | 49.5502% | -$960.224033 | -7.7088% | 0.266496 |
+| 0.60–0.70 | 2064 | 60.3198% | -$573.525901 | -5.8380% | 0.251574 |
+| >=0.70 | 2304 | 76.2153% | -$345.759775 | -3.0964% | 0.186517 |
+
+- 方向：UP n=3745、accuracy `58.6649%`、P&L `-$1,132.828867`、ROI `-6.3861%`、Brier `0.242601`、每笔 P&L CI `[-$0.426221,-$0.178761]`；DOWN n=4217、accuracy `59.8767%`、P&L `-$1,023.514762`、ROI `-5.1305%`、Brier `0.236332`、CI `[-$0.357640,-$0.127783]`。
+- selected probability：`0.50–0.60` n=1589、ROI `-9.2341%`；`0.60–0.70` n=2585、ROI `-6.3354%`；`0.70–0.80` n=1987、ROI `-4.8384%`；`>=0.80` n=1801、ROI `-2.8765%`。四个概率桶的每笔 P&L CI 均完全低于 0，且实际 accuracy 均低于桶内平均预测概率；没有可推广的校准子群。
+- observer arrival latency P50/P95/max `776.115/2479.164/11199.478ms`，这是历史信号到模拟到达盘口延迟，不是当前 RTT。`<=100/100–500/500–1000/1000–2000/>2000ms` ROI 分别为 `-0.0367%/-8.9308%/-3.9791%/-4.4707%/-5.1740%`；其中 `<=100ms` 和 `>2000ms` 的每笔 P&L CI 跨 0，其余三桶 CI 完全低于 0。所有延迟桶点估计仍为负。
+
+### 验证、决定与下一轮唯一优先项
+
+- 精确工作区通过 41 项 Fast tests、前端 validator、13 个 Fast Python 模块 `py_compile` 和运行前 `git diff --check`。文档更新后再次执行同步校验与最终 diff check。
+- 本轮唯一假设是“相同服务状态下路径是否已经稳定恢复”。结果是在 3/4 freshness 降级时路径 `718.30–721.21ms`，无重启恢复后仍在 `278.05–397.95ms` 波动，最终 `376.74–378.23ms`；当前目标与稳定性目标都失败。
+- 没有明确、可复现、低风险的软件浪费支持修改。归属未明的 timing/bucket 诊断继续受到保护；不调用 `deploy/push.sh`，不重启服务，不提交或推送。
+- `P95<100ms`：**当前未达成，稳定性也未达成**。收益证据：**未达标**；7962 笔费用、滑点和延迟后 ROI `-5.7215%`，每笔 P&L 95% CI 完全低于 0。
+- 最新可验证教训：高 steal/main CPU 与 freshness 降级再次共现，但本轮资源窗发生在 API 已开始恢复的邻近时段，不能当作严格同窗因果；同 PID、零重启、warning 为 0 时 event-loop P95 可从 `562ms` 退出窗口，而路径仍约 `377ms`。新增 226 笔又亏 `$90.26`，整体 calibration gap `-11.67pp`，所有标准价格、方向、概率和延迟桶 ROI 点估计仍为负。
+- 下一轮唯一优先项：先明确本地 `fastbot.py` / `tests/test_fastbot.py` timing/bucket 诊断归属；归属确认后再做四连接 IPv6 `/time` sidecar 的主探针同相与半 cadence 错相对照。归属仍不明时继续只读采样，不部署、不改 executor、不强制 IPv4、不建议购买机器。

@@ -6,7 +6,7 @@ Local workstation override (2026-07-24): use `C:\Users\<user>\.ssh\<ssh-key>.pem
 
 # Fast Market 工作记忆
 
-最后更新：2026-07-27 20:47 JST
+最后更新：2026-07-31 23:55 JST
 
 这份文件是当前快市场系统的唯一快速交接入口。旧 `HANDOFF.md` 主要描述已退休的慢市场，而且存在编码损坏；继续工作时先读本文件。
 
@@ -20,8 +20,19 @@ Local workstation override (2026-07-24): use `C:\Users\<user>\.ssh\<ssh-key>.pem
 - observer 的早期正收益已被大样本证伪：从 217 笔时的 `+$27.69961` 变成约 2239 笔时的 `-$341.90`。高胜率没有转化为正期望。
 - 独立 `$30` 有限现金实验 `favorite-price-holdout-v1` 已于 `2026-07-24T15:12:32Z` 冻结并启动。它只跟随该时间之后的 observer 到达盘口记录，额外规则只有 `intended ask >= 0.60`；这是待验证的事后假设，不是策略升级。
 - `favorite-price-holdout-v1` 在 6 笔官方结算后净亏 `$6.512921`，已触发自身 `challenger_portfolio_daily_loss_gate` 并永久 `HALTED`；不得解除或重置。它未达到 500 笔/336 小时门槛。
-- 2026-07-27 20:44 JST 的完整同窗中，各时点可控路径滑动 P95 中位数为 `297.71–300.95ms`，窗口末为 `298.29–301.53ms`；窗口末 HTTP P95 `157.03–160.25ms`、event-loop P95 `141.20–141.22ms`、decision P95 `0.05–0.10ms`，仍未达到 `<100ms`。
-- observer 在 4335 笔官方结算的只读 SQL 快照中，费用、滑点和延迟后 ROI `-5.4921%`，每笔 P&L 95% CI `[-$0.374450,-$0.144435]`；累计净 P&L 和置信区间仍为负，不支持推广。
+- `calibrated-probability-holdout-v1` 已在本地实现并冻结于 `2026-07-31T13:03:00Z`：它用冻结前 8114 笔官方结算的四个固定 reliability bins，把原始 selected probability 校准后按同一费用/滑点缓冲重算净 edge；校准覆盖外或校准后 edge `<4pp` 一律 fail-closed。它不修改原 holdout、champion 或 observer，仅使用独立 `$30` shadow 账本；因工作区仍有归属不明改动，尚未部署或开始计入 holdout 样本。
+- 2026-07-28 08:22 JST 的完整 240 样本快照中，可控路径 P95 为 `455.21–460.91ms`：HTTP P95 `155.60–159.16ms`、event-loop P95 `299.50–301.66ms`、decision P95 `0.07–0.12ms`。相对上一完整同窗，恶化主要来自 event-loop；三服务 PID/restart count 未变，随后 10 秒 aggregate steal 为 `41.69%`，单点和不同时窗不能支持调度因果或付费扩容。
+- 2026-07-28 14:24 JST 的另一完整 240 样本快照在同 PID、零重启、零代码变更下回落到 `83.07–88.65ms`：HTTP P95 `81.29–86.96ms`、event-loop P95 `1.62–1.73ms`、decision P95 `0.06–0.08ms`；随后一分钟 12 次滑动快照持续 `82.77–88.86ms`。同步末端 10 秒 steal/主进程单核 CPU 为 `0.05%/4.80%`。现有套餐实证可达目标，但同日 `455–461ms` 与 `83–89ms` 的巨大跨时段波动说明尚未稳定；短资源窗只能记录同相，不能证明唯一因果或支持付费扩容。
+- 2026-07-28 20:29 JST 已捕获同 PID、零重启、零部署下的反向转换：完整路径先回到 `123.99–198.19ms`，20 秒高压同窗达到 `415.36–551.14ms`，随后 10 次快照虽恢复 4/4 online，路径仍为 `193.80–316.87ms`，最终为 `161.97–234.61ms`。高压窗 main 单核 CPU/aggregate steal/iowait 为 `72.35%/50.12%/2.90%`，event-loop P95 `319.69–394.67ms`，后端 freshness 曾短时降至 3/4、再到 2/4；短资源窗与 20 分钟滑动指标不等尺度，只支持继续配对观测，不能证明唯一因果或支持付费扩容。
+- 2026-07-30 06:02 JST 完成同 PID、零重启、零部署的 240 样本五秒 resource/API 配对窗。四资产路径滑动 P95 的跨时点 P95 为 `848.38–862.69ms`，240/240 个快照全路高于 100ms；aggregate steal P50/P95 `64.25%/84.49%`、main 单核 CPU P50/P95 `90.00%/104.98%`。路径与 steal 的 5 秒相关仅 `0.202`，60 秒平滑相关 `0.631`，同窗多次出现反向变化；46/240 个快照 `ready=false`、最差 0/4 online。高调度压力与 freshness 失败的共现比其与滑动路径 P95 的关系更一致，但仍不能证明唯一因果或支持付费扩容。
+- 2026-07-30 11:43 JST 的后续只读快照在同 PID、零重启下恢复 4/4 online，但完整 240 样本可控路径仍为 `379.80–381.27ms`：HTTP P95 `158.81–160.65ms`、event-loop P95 `220.54–221.95ms`、decision P95 `0.06–0.10ms`。同步 10 秒 aggregate steal/main 单核 CPU/iowait 为 `64.75%/95.06%/5.88%`；11:46 JST 的无资源配对终点又自然回落到 `301.43–303.54ms`。这些变化不改变上一完整配对窗关于弱瞬时相关和非唯一因果的结论。
+- 2026-07-30 17:45 JST 的又一同 PID、零重启只读快照先为 4/4 online，完整 240 样本可控路径 `294.59–296.16ms`：HTTP P95 `159.55–160.70ms`、event-loop P95 `134.96–135.40ms`、decision P95 `0.08–0.14ms`。同步 10 秒 aggregate steal/main 单核 CPU/iowait 为 `63.17%/94.50%/1.71%`。17:48 JST 又短暂出现一次 3/4 strict freshness 失败（最大 state age `3.121s`），随后 10/10 跟踪快照自然恢复 4/4，但路径升到 `304.82–376.82ms`、终点 `335.34–338.94ms`。累计 reconnect 增至 ETH RTDS 2、SOL market 4、XRP market 1，三服务 warning 日志仍为 0；这支持继续观察高压力与 freshness 共现，不支持放宽 freshness、改重连或作唯一因果结论。
+- 2026-07-30 23:45 JST 的同 PID、零重启只读复查先为 4/4 online、完整路径 `380.44–381.80ms`，同步 10 秒 aggregate steal/main 单核 CPU/iowait 为 `69.42%/107.82%/1.67%`。随后 strict freshness 连续降至 3/4、3/4、2/4（最大 state age `4.957s`），再无重启恢复 4/4；跟踪路径最高 `632.72ms`，23:46 JST 为 `540.52–548.38ms`，23:49 JST 又自然回落到 `383.07–390.37ms`。三服务 PID/restart count 和 warning 日志不变，reconnect 也未增加。重复的高压力/freshness 共现值得继续记录，但 10 秒资源窗与 240 样本滑动路径仍不等尺度，不证明唯一因果，也不支持付费扩容。
+- 2026-07-31 05:45 JST 的同 PID、零重启只读复查仍为 4/4 online。初始完整路径 `393.47–418.13ms`，其中 HTTP P95 `135.33–159.95ms`、event-loop P95 `257.94–258.05ms`、decision P95 `0.09–0.18ms`；同步 10 秒末端路径自然降至 `300.19–319.13ms`，aggregate steal/main 单核 CPU/iowait 为 `58.29%/89.80%/1.20%`。随后 8/8 跟踪均保持 4/4 online，但路径在 `298.66–515.70ms` 间快速变化；05:49 JST 最终又升到 `461.77–480.82ms`，不能称为稳定恢复。三服务 PID/restart count 仍为 `170952/113705/172845` 和 0，最近各 500 行 warning 均为 0；本轮第一次 SSH 配对尝试超时且未产生数据，第二次成功。
+- 2026-07-31 11:48 JST 的同 PID、零重启只读复查仍为 4/4 online。初始完整路径已自然回落到 `299.87–302.27ms`：HTTP P95 `159.16–161.49ms`、event-loop P95 `139.07–140.91ms`、decision P95 `0.08–0.11ms`。同步 10 秒 aggregate steal/main 单核 CPU/iowait 为 `60.18%/94.20%/1.65%`；随后路径先升到 `458.64–478.77ms`，8 次跟踪又回到 `302.53–382.55ms` 并始终 4/4 online。三服务 PID/restart count 与 warning 计数不变；相同服务状态下的分钟级反向换挡再次说明单个 10 秒资源点不能解释 240 样本滑动路径。
+- 2026-07-31 17:52 JST 的同 PID、零重启只读复查先捕获 `ready=false`、3/4 online，XRP state age `3.201s`；四路完整路径 `718.30–721.21ms`，HTTP P95 `156.04–158.91ms`、event-loop P95 `562.20–562.21ms`、decision P95 `0.05–0.10ms`，event-loop max `7583.15ms`。随后无需重启恢复 4/4，10/10 跟踪路径仍在 `278.05–397.95ms`，08:52 为 `376.74–378.23ms`，08:57 又自然降至 `301.24–304.07ms`。邻近 10 秒资源窗 aggregate steal/main 单核 CPU/iowait 为 `60.18%/95.05%/1.26%`；三服务 PID/restart count 与 warning 计数不变。累计 reconnect 增至 BTC `1/0`、ETH `3/1`、SOL `2/5`、XRP `2/2`，但自动恢复和空 warning 不支持立即修改 freshness 或重连。
+- 2026-07-31 23:55 JST 的只读复查初始为 4/4 online、完整路径 `453.82–490.24ms`；同步 10.351 秒窗 aggregate steal/main 单核 CPU/iowait 为 `64.82%/108.50%/3.14%`，窗后路径升至 `624.14–666.22ms`。随后 8 次跟踪有一次短暂 3/4 strict freshness 失败（最大 state age `3.231s`）并无重启恢复，路径一度 `538.85–546.03ms`，最终健康核对又自然降至 `240.77–243.83ms`。三服务 PID/restart count 继续为 `170952/113705/172845` 和 0，最近各 500 行告警为 0，reconnect 保持 BTC `1/0`、ETH `3/1`、SOL `2/5`、XRP `2/2`。这再次记录高调度压力、event-loop 尾部和 freshness 失败共现，但短资源窗与滑动 P95 不等尺度，不能证明唯一因果或支持付费扩容。
+- observer 在 8179 笔官方结算的只读 SQL 快照中，费用、滑点和延迟后净 P&L `-$2,220.137485`、ROI `-5.7354%`、Brier `0.239158`，每笔 P&L 95% CI `[-$0.354483,-$0.188404]`。相对最近同口径 8099 笔新增 80 笔并再亏 `$25.046966`；平均 selected probability 比实际 accuracy 高 `11.6640pp`，所有标准 intended-ask、方向、selected-probability 和 latency 桶的 ROI 点估计仍为负，高胜率没有转化为正期望或推广证据。
 - 去除 champion SQLite 的无变化 window/account 刷新后，四库修改频率短窗约降 `87.5%`、主进程单核 CPU 约降 `20.2%`，但 process write_bytes 仅降约 `10.7%`；四份每秒原子状态 JSON 及文件系统元数据放大成为主要剩余写入。
 - 同盘受控基线进一步修正了写入口径：三次各 20 次原子替换的 gross `write_bytes / payload` 均约 `1.089×`，不是主进程同窗的 `5.45×`；主进程 `write_bytes=5,922,816B` 同时有 `cancelled_write_bytes=4,866,048B`，净记账 `1,056,768B` 约为状态载荷 `1,086,735B` 的 `0.97×`。不得把 gross `write_bytes` 单独称为物理写入，也没有证据支持为此迁移 tmpfs 或放弃原子读取语义。
 - 2026-07-26 两段低开销配对窗口中，main gross 写入约 `81–83%` 被 `cancelled_write_bytes` 抵消；取消比例在 event-loop P95 约 `59–62ms` 和约 `306–324ms` 的窗口相近，安静段写入速率反而更高。observer SQLite、decision JSONL、review bundle 均未变化；当前证据不支持把 gross 或取消写记账当成尾延迟根因。
@@ -32,6 +43,7 @@ Local workstation override (2026-07-24): use `C:\Users\<user>\.ssh\<ssh-key>.pem
 - 2026-07-27 已在不改变原 `clob_http` 口径的前提下完成四路各 240 样本的主探针拆分：原 HTTP 计时从 worker 内开始，executor queue 从未混入；queue-wait P95 `76.82–78.63ms`，worker 内 socket TTFB P95 `95.60–157.57ms`，body-read P95 全部 `0.02ms`。共享 executor 确有额外尾部等待，但它不解释原 HTTP 与 sidecar 的差异，也不能从既定路径 P95 中直接相减。
 - 2026-07-27 修正 dashboard freshness 假告警：后端 3 秒 engine freshness 保持不变；`ENGINE STALE` 只信任后端 `bot.online`，缓存/隧道造成的聚合延迟改用 `generated_at` 单列为 `DASHBOARD DELAY`。旧逻辑在 30 次采样中误报 11 次且每次仍为 4/4 online；部署后浏览器连续 15 次观察为 0 次误报。
 - 2026-07-27 的主探针/四连接 IPv6 sidecar/VPS 调度同窗各含 240 样本：sidecar 960/960 成功、0 重连，TTFB P50/P95 为约 `78/82ms`；主探针 HTTP P50 同为约 `78ms`，但约 `158ms` 次级模式在主侧进入 P95、在 sidecar 只到 P99。主侧差值中位数在 steal 低/高四分位均约 `79–81ms`，没有随 aggregate steal 同涨同落；基础路径相同，差别在次级模式出现频率，当前证据不支持改 executor、强制 IPv4 或付费扩容。
+- 2026-07-28 本地工作区存在归属不明的 `fastbot.py` / `tests/test_fastbot.py` 未提交改动，内容是上一轮计划的主探针提交/完成单调时间与 240 样本 TTFB 分桶诊断。项目 `.venv` 已确认包含 `aiohttp` / `PyYAML`，当前精确工作区的 41 个 Fast tests、前端 validator、13 模块静态编译和 diff check 全部通过；测试阻塞已消除，但归属仍未明确，因此该改动仍未部署、未提交，远端服务保持原版本。
 
 ## 运行位置与访问
 
@@ -55,14 +67,14 @@ journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 
 ## 当前运行快照
 
-快照时间：2026-07-27 11:45 UTC
+快照时间：2026-07-31 14:50 UTC
 
 - API `ready: true`
 - 资产执行引擎：4/4 在线（BTC、ETH、SOL、XRP）
 - 逻辑信号通道：16（每资产 4 条）
-- observer fills / settled：约 `4351 / 4347`
-- observer normalized P&L：约 `-$1,131.61`
-- observer accuracy：约 `59.0%`
+- observer fills / settled：本轮直接 SQL 快照 `8181 / 8179`
+- observer normalized P&L：直接 SQL 快照 `-$2,220.14`
+- observer accuracy：约 `59.30%`
 - champion equity：`$7.790189`
 - champion halt：`portfolio_incident_latched`
 - finite-cash challenger：`favorite-price-holdout-v1`
@@ -142,6 +154,17 @@ journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 - 2026-07-27 增加主探针 queue/TTFB/body 旁路诊断并部署，原 HTTP 指标不变；四路满 240 样本后 queue P95 约 `77ms`、TTFB P95 `96–158ms`、body P95 `0.02ms`。本地与 VPS 各 40 项 Fast tests、13 模块静态编译及本地前端 validator 通过；主服务仅在两次 0 pending/position 且 champion+observer WAIT 后重启，challenger 未重启。
 - 2026-07-27 将 engine stale、dashboard snapshot delay 和 request failure 拆成三个真实告警；本地/VPS 各 40 项 Fast tests、静态编译及本地前端 validator 通过。只重启 dashboard，主引擎和 challenger 未重启；实际浏览器 15 个两秒样本均 4/4 online、0 假告警、console 干净。
 - 2026-07-27 完成主探针、四连接 IPv6 sidecar 与 aggregate steal 的 20 分钟同窗：960/960 sidecar 和 240/240 API 样本成功，三服务 PID/restart count 不变。主/sidecar warm P50 相同但约 158ms 次级模式频率不同，且差值不随 steal 四分位扩大；本地 40 项 Fast tests、前端 validator 和 13 模块静态编译通过，本轮未改运行代码、未部署、未重启。
+- 2026-07-28 只读快照中路径 P95 升至 `455.21–460.91ms`，其中 event-loop P95 为 `299.50–301.66ms`；同一短资源窗 steal/iowait 为 `41.69%/1.12%`，主进程单核 CPU `55.90%`。observer 扩大到 4770 settled、净 P&L `-$1,191.688740`，但 ROI 从 `-5.4921%` 略回升到 `-5.2830%`；累计净值和 CI 仍显著为负。本轮因两份归属不明的未提交诊断改动而只记录、不部署、不重启。
+- 2026-07-28 14:24 JST 的后续完整窗口在服务 PID/restart count 不变时回落为 `83.07–88.65ms`，一分钟 12 次抽样持续低于 `88.86ms`；末端 10 秒 steal/iowait `0.05%/0.30%`、主进程单核 CPU `4.80%`。这证明现有机器可达到 `<100ms`，但不能抹掉同日早些时候 `455–461ms` 的完整窗口或称为稳定达标。observer 扩大到 5009 settled、净 P&L `-$1,237.322287`、ROI `-5.2208%`，仍不支持推广。当前工作区 41 项 Fast tests、前端 validator、13 模块静态编译和 diff check 通过；因运行代码归属不明仍未提交、部署或重启。
+- 2026-07-28 20:29 JST 的只读观测捕获完整窗口从 `<100ms` 回到 `123.99–198.19ms`，随后高压窗短时达到 `415.36–551.14ms` 并触发真实后端 freshness 瞬时降级；10 次跟踪恢复 4/4 online 但路径仍高于目标，最终为 `161.97–234.61ms`。同窗 20 秒 steal `50.12%`、main 单核 CPU `72.35%`，只证明同相不证明唯一因果。observer 直连扩大到 5250 settled、净 P&L `-$1,326.269177`、ROI `-5.3368%`，仍不支持推广；未改代码、未部署、未重启。
+- 2026-07-30 完成 20 分钟、240 样本 resource/API 配对窗：路径全程不达标，46 次 strict freshness 失败，服务 PID/restart count 不变；5 秒路径/steal 相关弱、60 秒相关中等，且有多段反向变化，不能把 steal 当作唯一解释。observer 直连扩大到 6580 settled、净 P&L `-$1,870.361720`、ROI `-5.9984%`。本地 41 项 Fast tests、前端 validator、13 模块静态编译和 diff check 通过；工作区归属阻塞仍在，未提交、部署或重启。
+- 2026-07-30 11:43–11:46 JST 只读复查：4/4 online、同 PID/零重启，完整路径从 `379.80–381.27ms` 自然回落到 `301.43–303.54ms`，配对 10 秒 steal/main CPU `64.75%/95.06%`；observer 直连扩大到 6819 settled、净 P&L `-$1,947.371284`、ROI `-6.0252%`。timing/bucket 本地改动归属仍不明确，本轮继续不部署、不重启、不改指标或风控。
+- 2026-07-30 17:39–17:49 JST 只读复查：同 PID/零重启，完整路径先为 `281.73–296.16ms`，配对 10 秒 steal/main CPU `63.17%/94.50%`；随后一次 3/4 freshness 失败立即自然恢复，10 次跟踪终点路径为 `335.34–338.94ms`。observer 直连扩大到 7063 settled、净 P&L `-$1,795.741693`、ROI `-5.3644%`，每笔 P&L CI 仍完全为负。当前精确工作区 41 项 Fast tests、前端 validator、13 模块静态编译和 diff check 通过；timing/bucket 本地改动归属仍不明确，继续不提交、不部署、不重启。
+- 2026-07-30 23:40–23:49 JST 只读复查：相同 PID/零重启下，完整路径先为 `380.44–381.80ms`，同步 10 秒 steal/main CPU `69.42%/107.82%`；随后 strict freshness 连续降至 3/4、3/4、2/4，再自然恢复 4/4，跟踪路径最高 `632.72ms`，最终又自然回落到 `383.07–390.37ms`。observer 直连扩大到 7283 settled、净 P&L `-$1,812.145703`、ROI `-5.2524%`，每笔 P&L CI 仍完全为负。timing/bucket 本地改动归属仍不明确，本轮继续不提交、不部署、不重启。
+- 2026-07-31 05:40–05:49 JST 只读复查：相同 PID/零重启下，初始完整路径 `393.47–418.13ms`，同步 10 秒资源窗末端自然降至 `300.19–319.13ms`，steal/main CPU 为 `58.29%/89.80%`；8 次后续均 4/4 online，但路径在 `298.66–515.70ms` 波动，最终为 `461.77–480.82ms`。observer 直连扩大到 7511 settled、净 P&L `-$1,974.788723`、ROI `-5.5524%`，所有标准分桶 ROI 点估计仍为负。精确工作区 41 项 Fast tests、前端 validator 和 13 模块静态编译通过；timing/bucket 本地改动归属仍不明确，继续不提交、不部署、不重启。
+- 2026-07-31 11:44–11:48 JST 只读复查：相同 PID/零重启下，初始完整路径自然回落到 `299.87–302.27ms`；同步 10 秒 steal/main CPU 为 `60.18%/94.20%`，随后路径升到 `458.64–478.77ms`，8 次跟踪再回到 `302.53–382.55ms`，全程 4/4 online。observer 直连扩大到 7736 settled、净 P&L `-$2,066.082716`、ROI `-5.6413%`，所有标准分桶 ROI 点估计仍为负。精确工作区 41 项 Fast tests、前端 validator 和 13 模块静态编译通过；timing/bucket 本地改动归属仍不明确，继续不提交、不部署、不重启。
+- 2026-07-31 17:43–17:57 JST 只读复查：相同 PID/零重启下先从 4/4 降到 3/4 freshness，完整路径升至 `718.30–721.21ms`，随后自然恢复 4/4；10 次跟踪路径 `278.05–397.95ms`，最终健康核对 `301.24–304.07ms`。邻近 10 秒 steal/main CPU 为 `60.18%/95.05%`，累计 reconnect 有新增但 warning 仍为 0。observer 直连扩大到 7962 settled、净 P&L `-$2,156.343629`、ROI `-5.7215%`、整体 calibration gap `-11.6658pp`，所有标准分桶 ROI 点估计仍为负。精确工作区 41 项 Fast tests、前端 validator 和 13 模块静态编译通过；timing/bucket 本地改动归属仍不明确，继续不提交、不部署、不重启。
+- 2026-07-31 23:44–23:55 JST 只读复查：相同 PID/零重启下初始完整路径 `453.82–490.24ms`，同步 10.351 秒 steal/main CPU 为 `64.82%/108.50%`，窗后升至 `624.14–666.22ms`；8 次跟踪短暂出现一次 3/4 freshness 失败后自然恢复，路径一度 `538.85–546.03ms`，最终又自然降至 `240.77–243.83ms`。observer 直连扩大到 8179 settled、净 P&L `-$2,220.137485`、ROI `-5.7354%`、整体 calibration gap `-11.6640pp`，所有标准分桶 ROI 点估计仍为负。精确工作区 44 项 Fast tests、前端 validator、13 模块静态编译通过；工作区新增本地 calibrated challenger 整组未提交改动且旧 timing/bucket 归属仍未明确，本轮继续不提交、不部署、不重启。
 
 ## 重要口径
 
@@ -155,9 +178,9 @@ journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 ## 下一步优先级
 
 1. 保持 `favorite-price-holdout-v1` 参数冻结，收集至少 500 笔官方结算和 336 小时运行；不得因中途盈亏改规则或重置账本。
-2. 把概率校准误差、价格区间和方向差异作为下一批并行 challenger 假设，不得回头过滤本次 holdout。
+2. 先解决工作区归属阻塞，再只用 `deploy/push.sh` 启动已冻结的 `calibrated-probability-holdout-v1`；保持四个校准桶、13:03 UTC 冻结点和独立账本不变，至少 500 笔官方结算和 336 小时后才评估。价格区间和方向差异只能另立后续自然时间 holdout，不得回头过滤任一现有实验。
 3. 把四条策略通道分别建立独立账本；在此之前不要把 16 lanes 描述成 16 个已交易 bot。
-4. 保持主进程、状态 writer、1 秒 freshness、原子读取语义和现有指标不变；下一轮只增加主探针提交/完成单调时间与 TTFB 分桶计数诊断，积满 240 样本后让四连接 IPv6 `/time` sidecar 分别对齐主探针相位与错开约半个 cadence，检验约 158ms 次级模式是否来自四路同步突发/相位。不得先改 executor、用 sidecar 替换主指标、强制 IPv4 或购买机器。
+4. 保持主进程、状态 writer、1 秒 freshness、原子读取语义和现有指标不变；优先明确当前本地两份未提交 timing/bucket 诊断的归属，工作区不干净时不得部署。归属确认后，再让四连接 IPv6 `/time` sidecar 分别对齐主探针相位与错开约半个 cadence，分离约 158–240ms TTFB 次级模式与 event-loop/freshness 压力；不得先改 executor、用 sidecar 替换主指标、强制 IPv4 或购买机器。
 5. 若接入 CVD/清算，使用一个共享 Binance Futures collector，再广播给四资产引擎；不要每个策略重复开连接。
 
 ## 安全边界
