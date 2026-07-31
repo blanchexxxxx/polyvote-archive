@@ -49,17 +49,24 @@ class CashChallengerTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def add_observation(self, condition: str, ask: float, created: float):
+    def add_observation(
+        self,
+        condition: str,
+        ask: float,
+        created: float,
+        fair_probability: float = 0.72,
+        net_edge: float = 0.06,
+    ):
         row = self.observer.create_candidate({
             "condition_id": condition,
             "slug": f"btc-updown-5m-{int(created)}",
             "start_epoch": int(created),
             "end_epoch": int(created + 300),
             "outcome": "UP",
-            "fair_probability": 0.72,
+            "fair_probability": fair_probability,
             "intended_ask": ask,
             "limit_price": ask + 0.01,
-            "net_edge": 0.06,
+            "net_edge": net_edge,
             "target_shares": 7.8,
             "created_ts": created,
             "due_ts": created + 0.05,
@@ -108,6 +115,8 @@ class CashChallengerTests(unittest.TestCase):
         self.assertAlmostEqual(state["cash_usd"], state["equity_usd"])
         self.assertGreater(state["equity_usd"], 10)
         self.assertFalse(state["promotion_gate"]["eligible"])
+        self.assertAlmostEqual(state["research"]["brier"], 0.0784)
+        self.assertAlmostEqual(state["research"]["calibration_gap_pp"], 28.0)
 
     def test_allocation_mismatch_fails_closed(self):
         config = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
@@ -146,6 +155,74 @@ class CashChallengerTests(unittest.TestCase):
         self.assertEqual(_poll_delay(2.0, "COLLECTING"), 2.0)
         self.assertEqual(_poll_delay(2.0, "HALTED"), 10.0)
         self.assertEqual(_poll_delay(15.0, "HALTED"), 15.0)
+
+    def test_frozen_calibration_recomputes_probability_and_net_edge(self):
+        config = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
+        config["rules"]["min_entry_price"] = 0
+        config["probability_calibration"] = {
+            "schema": "fixed-bin-calibration-v1",
+            "training_cutoff_utc": "1970-01-01T00:01:39Z",
+            "bins": [{
+                "min_inclusive": 0.5,
+                "max_exclusive": 1.0,
+                "samples": 100,
+                "wins": 64,
+                "calibrated_probability": 0.64,
+            }],
+        }
+        self.config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+        self.add_observation(
+            "calibrated", 0.65, 101, fair_probability=0.72, net_edge=0.14
+        )
+        challenger = CashChallenger(self.config_path)
+        intent = challenger._ensure_intent(challenger._source_rows()[0])
+        self.assertAlmostEqual(intent["fair_probability"], 0.64)
+        self.assertAlmostEqual(intent["net_edge"], 0.06)
+        self.assertEqual(intent["status"], "submitted")
+
+    def test_calibration_rejects_raw_edge_that_disappears(self):
+        config = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
+        config["rules"]["min_entry_price"] = 0
+        config["probability_calibration"] = {
+            "schema": "fixed-bin-calibration-v1",
+            "training_cutoff_utc": "1970-01-01T00:01:39Z",
+            "bins": [{
+                "min_inclusive": 0.5,
+                "max_exclusive": 1.0,
+                "samples": 100,
+                "wins": 60,
+                "calibrated_probability": 0.60,
+            }],
+        }
+        self.config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+        self.add_observation(
+            "false-edge", 0.65, 101, fair_probability=0.72, net_edge=0.10
+        )
+        state = CashChallenger(self.config_path).run_once()
+        self.assertEqual(state["fills"], 0)
+        self.assertEqual(state["rejects"], 1)
+        recent = state["accounts"]["BTC"]["recent_trades"]
+        self.assertEqual(
+            recent[0]["reject_reason"],
+            "challenger_net_edge_below_threshold",
+        )
+
+    def test_calibration_training_must_precede_holdout(self):
+        config = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
+        config["probability_calibration"] = {
+            "schema": "fixed-bin-calibration-v1",
+            "training_cutoff_utc": "1970-01-01T00:01:41Z",
+            "bins": [{
+                "min_inclusive": 0.5,
+                "max_exclusive": 1.0,
+                "samples": 1,
+                "wins": 1,
+                "calibrated_probability": 0.75,
+            }],
+        }
+        self.config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+        with self.assertRaises(ValueError):
+            CashChallenger(self.config_path)
 
 
 if __name__ == "__main__":

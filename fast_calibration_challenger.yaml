@@ -1,0 +1,84 @@
+# Frozen natural-time holdout for probability calibration. Historical official
+# settlements below only define the mapping; no observation created before the
+# freeze is eligible for this independent finite-cash shadow ledger.
+schema: fast-cash-challenger-v1
+experiment_id: calibrated-probability-holdout-v1
+frozen_at_utc: 2026-07-31T13:03:00Z
+hypothesis: A frozen reliability map removes false edge caused by overconfident model probabilities.
+
+source_observer_pattern: fast_observer_{asset}.db
+source_virtual_order_usd: 5.0
+ledger_pattern: fast_challenger_calibrated_v1_{asset}.db
+state_path: fast_calibration_challenger_state.json
+incident_path: fast_calibration_challenger_incident.json
+poll_seconds: 10.0
+
+total_capital_usd: 30.0
+max_daily_loss_usd: 6.0
+max_open_positions: 4
+latch_on_daily_loss: true
+
+# Fixed before the holdout. Each probability is the Beta(1,1) posterior mean
+# from official settlements visible in the 2026-07-31T13:01:52.659322Z snapshot.
+probability_calibration:
+  schema: fixed-bin-calibration-v1
+  method: laplace-smoothed-reliability-bin
+  training_cutoff_utc: 2026-07-31T13:01:52.659322Z
+  training_settled: 8114
+  prior_alpha: 1.0
+  prior_beta: 1.0
+  bins:
+    - min_inclusive: 0.50
+      max_exclusive: 0.60
+      samples: 1627
+      wins: 714
+      calibrated_probability: 0.438919583
+    - min_inclusive: 0.60
+      max_exclusive: 0.70
+      samples: 2632
+      wins: 1375
+      calibrated_probability: 0.522399393
+    - min_inclusive: 0.70
+      max_exclusive: 0.80
+      samples: 2017
+      wins: 1281
+      calibrated_probability: 0.634967806
+    - min_inclusive: 0.80
+      max_exclusive: 1.00
+      samples: 1838
+      wins: 1437
+      calibrated_probability: 0.781521739
+
+rules:
+  min_entry_price: 0.0
+  min_selected_probability: 0.0
+  min_net_edge: 0.04
+  minimum_order_shares: 5.0
+  max_orders_per_asset_window: 1
+
+promotion_gate:
+  minimum_settled: 500
+  minimum_runtime_hours: 336
+  requires_frozen_holdout: true
+
+assets:
+  - asset: BTC
+    allocation_usd: 10.5
+    max_order_usd: 4.25
+    max_daily_loss_usd: 3.5
+    minimum_cash_reserve_usd: 1.0
+  - asset: ETH
+    allocation_usd: 7.5
+    max_order_usd: 3.75
+    max_daily_loss_usd: 2.5
+    minimum_cash_reserve_usd: 0.75
+  - asset: SOL
+    allocation_usd: 6.0
+    max_order_usd: 3.5
+    max_daily_loss_usd: 2.0
+    minimum_cash_reserve_usd: 0.5
+  - asset: XRP
+    allocation_usd: 6.0
+    max_order_usd: 3.5
+    max_daily_loss_usd: 2.0
+    minimum_cash_reserve_usd: 0.5

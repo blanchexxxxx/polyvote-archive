@@ -5,7 +5,7 @@ After=network-online.target polyvote-fast.service
 [Service]
 Type=simple
 WorkingDirectory=%h/polyvote
-ExecStart=%h/polyvote/.venv/bin/python -u fastchallenger.py --config %h/polyvote/fast_challenger.yaml
+ExecStart=%h/polyvote/.venv/bin/python -u fastchallenger.py --config %h/polyvote/fast_challenger.yaml --config %h/polyvote/fast_calibration_challenger.yaml
 Restart=always
 RestartSec=3
 StandardOutput=append:%h/polyvote/fast-challenger.log

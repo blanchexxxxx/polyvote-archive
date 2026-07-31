@@ -31,6 +31,7 @@ FILES=(
   fast_config.yaml
   fast_portfolio.yaml
   fast_challenger.yaml
+  fast_calibration_challenger.yaml
   requirements-fast.txt
   requirements.txt
   README.md
