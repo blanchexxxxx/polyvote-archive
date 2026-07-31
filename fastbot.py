@@ -90,6 +90,66 @@ class MetricWindow:
         }
 
 
+class ProbeTimingDiagnostics:
+    """Low-overhead phase and TTFB counts for the existing HTTP probe."""
+
+    _TTFB_BUCKETS = (
+        ("under_100_ms", 100.0),
+        ("100_to_140_ms", 140.0),
+        ("140_to_180_ms", 180.0),
+        ("180_to_500_ms", 500.0),
+        ("at_least_500_ms", math.inf),
+    )
+
+    def __init__(self, size: int = 240):
+        self.samples: deque[str] = deque(maxlen=size)
+        self.counts: Counter[str] = Counter()
+        self.latest: dict[str, float] | None = None
+
+    @classmethod
+    def _bucket(cls, ttfb_ms: float) -> str:
+        for name, upper_bound in cls._TTFB_BUCKETS:
+            if ttfb_ms < upper_bound:
+                return name
+        raise AssertionError("unreachable TTFB bucket")
+
+    def add(
+        self,
+        *,
+        submitted: float,
+        worker_started: float,
+        worker_completed: float,
+        coroutine_completed: float,
+        ttfb_ms: float,
+    ) -> None:
+        bucket = self._bucket(ttfb_ms)
+        if len(self.samples) == self.samples.maxlen:
+            expired = self.samples[0]
+            self.counts[expired] -= 1
+        self.samples.append(bucket)
+        self.counts[bucket] += 1
+        self.latest = {
+            "submitted_monotonic": submitted,
+            "worker_started_monotonic": worker_started,
+            "worker_completed_monotonic": worker_completed,
+            "coroutine_completed_monotonic": coroutine_completed,
+            "socket_ttfb_ms": ttfb_ms,
+        }
+
+    def state(self) -> dict[str, Any]:
+        return {
+            "samples": len(self.samples),
+            "latest": (
+                None
+                if self.latest is None
+                else {key: round(value, 6) for key, value in self.latest.items()}
+            ),
+            "ttfb_buckets": {
+                name: self.counts[name] for name, _ in self._TTFB_BUCKETS
+            },
+        }
+
+
 class PersistentClobProbe:
     """Dedicated keep-alive probe, isolated from the market-data event loop."""
 
@@ -122,6 +182,8 @@ class PersistentClobProbe:
                     "queue_wait_ms": queue_wait_ms,
                     "socket_ttfb_ms": (headers_received - began) * 1000,
                     "body_read_ms": (finished - headers_received) * 1000,
+                    "worker_started_monotonic": worker_started,
+                    "worker_completed_monotonic": finished,
                 }
             except Exception:
                 self.close()
@@ -155,6 +217,7 @@ class FastBot:
         self.clob_http_queue_wait = MetricWindow()
         self.clob_http_socket_ttfb = MetricWindow()
         self.clob_http_body_read = MetricWindow()
+        self.clob_http_timing = ProbeTimingDiagnostics()
         self.decision_compute = MetricWindow()
         self.event_loop_lag = MetricWindow()
         self.http_probe = PersistentClobProbe()
@@ -687,11 +750,20 @@ class FastBot:
             self.event("warning", f"CLOB probe warmup failed: {type(exc).__name__}")
         while True:
             try:
-                sample = await asyncio.to_thread(self.http_probe.measure, time.perf_counter())
+                submitted = time.perf_counter()
+                sample = await asyncio.to_thread(self.http_probe.measure, submitted)
+                coroutine_completed = time.perf_counter()
                 self.clob_http.add(sample["total_ms"])
                 self.clob_http_queue_wait.add(sample["queue_wait_ms"])
                 self.clob_http_socket_ttfb.add(sample["socket_ttfb_ms"])
                 self.clob_http_body_read.add(sample["body_read_ms"])
+                self.clob_http_timing.add(
+                    submitted=submitted,
+                    worker_started=sample["worker_started_monotonic"],
+                    worker_completed=sample["worker_completed_monotonic"],
+                    coroutine_completed=coroutine_completed,
+                    ttfb_ms=sample["socket_ttfb_ms"],
+                )
             except Exception as exc:  # noqa: BLE001
                 self.event("warning", f"CLOB probe failed: {type(exc).__name__}")
             await asyncio.sleep(float(self.cfg.feeds.get("http_probe_seconds", 5)))
@@ -1340,6 +1412,7 @@ class FastBot:
                         "socket_ttfb": self.clob_http_socket_ttfb.state(),
                         "body_read": self.clob_http_body_read.state(),
                     },
+                    "clob_http_timing": self.clob_http_timing.state(),
                     "decision_compute": compute,
                     "event_loop_lag": loop_lag,
                     "platform_taker_delay_ms": (
@@ -1452,6 +1525,7 @@ class FastBot:
                     "socket_ttfb": self.clob_http_socket_ttfb.state(),
                     "body_read": self.clob_http_body_read.state(),
                 },
+                "clob_http_timing": self.clob_http_timing.state(),
                 "decision_compute": compute,
                 "event_loop_lag": loop_lag,
                 "platform_taker_delay_ms": taker_delay,

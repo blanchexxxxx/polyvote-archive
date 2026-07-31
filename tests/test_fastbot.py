@@ -5,7 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from fastbot import FastBot, PersistentClobProbe
+from fastbot import FastBot, PersistentClobProbe, ProbeTimingDiagnostics
 from polyvote.fastconfig import load_fast_config
 
 
@@ -21,7 +21,14 @@ class PersistentClobProbeTests(unittest.TestCase):
 
         self.assertEqual(
             set(sample),
-            {"total_ms", "queue_wait_ms", "socket_ttfb_ms", "body_read_ms"},
+            {
+                "total_ms",
+                "queue_wait_ms",
+                "socket_ttfb_ms",
+                "body_read_ms",
+                "worker_started_monotonic",
+                "worker_completed_monotonic",
+            },
         )
         self.assertGreaterEqual(sample["queue_wait_ms"], 1.0)
         self.assertGreaterEqual(sample["socket_ttfb_ms"], 0.0)
@@ -35,6 +42,46 @@ class PersistentClobProbeTests(unittest.TestCase):
             "GET",
             "/time",
             headers={"Connection": "keep-alive"},
+        )
+
+
+class ProbeTimingDiagnosticsTests(unittest.TestCase):
+    def test_tracks_latest_phase_and_sliding_ttfb_buckets(self):
+        timing = ProbeTimingDiagnostics(size=2)
+        timing.add(
+            submitted=1.0,
+            worker_started=1.1,
+            worker_completed=1.2,
+            coroutine_completed=1.3,
+            ttfb_ms=99.0,
+        )
+        timing.add(
+            submitted=2.0,
+            worker_started=2.1,
+            worker_completed=2.2,
+            coroutine_completed=2.3,
+            ttfb_ms=158.0,
+        )
+        timing.add(
+            submitted=3.0,
+            worker_started=3.1,
+            worker_completed=3.2,
+            coroutine_completed=3.3,
+            ttfb_ms=600.0,
+        )
+
+        state = timing.state()
+        self.assertEqual(state["samples"], 2)
+        self.assertEqual(state["latest"]["submitted_monotonic"], 3.0)
+        self.assertEqual(
+            state["ttfb_buckets"],
+            {
+                "under_100_ms": 0,
+                "100_to_140_ms": 0,
+                "140_to_180_ms": 1,
+                "180_to_500_ms": 0,
+                "at_least_500_ms": 1,
+            },
         )
 
 
