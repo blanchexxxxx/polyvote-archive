@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -223,6 +224,31 @@ class CashChallengerTests(unittest.TestCase):
         self.config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
         with self.assertRaises(ValueError):
             CashChallenger(self.config_path)
+
+    def test_yaml_datetime_cutoff_is_json_serializable(self):
+        config = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
+        config["probability_calibration"] = {
+            "schema": "fixed-bin-calibration-v1",
+            "training_cutoff_utc": datetime(
+                1970, 1, 1, 0, 1, 39, tzinfo=timezone.utc
+            ),
+            "bins": [{
+                "min_inclusive": 0.5,
+                "max_exclusive": 1.0,
+                "samples": 1,
+                "wins": 1,
+                "calibrated_probability": 0.75,
+            }],
+        }
+        self.config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+        state = CashChallenger(self.config_path).run_once()
+
+        self.assertEqual(
+            state["probability_calibration"]["training_cutoff_utc"],
+            "1970-01-01T00:01:39Z",
+        )
+        self.assertTrue((self.root / "state.json").exists())
 
 
 if __name__ == "__main__":

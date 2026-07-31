@@ -52,6 +52,14 @@ def _timestamp(value: str) -> float:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
 
 
+def _timestamp_text(value: Any) -> str:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return str(value)
+
+
 def _poll_delay(base_seconds: float, status: str) -> float:
     """Back off disk-heavy bookkeeping after the challenger is latched.
 
@@ -74,12 +82,16 @@ class CashChallenger:
         if self.config.get("schema") != "fast-cash-challenger-v1":
             raise ValueError("unsupported challenger schema")
         self.experiment_id = str(self.config["experiment_id"])
-        self.frozen_at_utc = str(self.config["frozen_at_utc"])
+        self.frozen_at_utc = _timestamp_text(self.config["frozen_at_utc"])
         self.frozen_ts = _timestamp(self.frozen_at_utc)
         self.rules = dict(self.config.get("rules") or {})
         self.probability_calibration = dict(
             self.config.get("probability_calibration") or {}
         )
+        if "training_cutoff_utc" in self.probability_calibration:
+            self.probability_calibration["training_cutoff_utc"] = _timestamp_text(
+                self.probability_calibration["training_cutoff_utc"]
+            )
         self.calibration_bins = self._load_calibration_bins()
         self.promotion_gate = dict(self.config.get("promotion_gate") or {})
         self.source_virtual_order_usd = float(
