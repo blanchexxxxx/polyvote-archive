@@ -1304,3 +1304,51 @@ IPv6 `/book` 对照：
 - `P95<100ms`：**当前未达成，稳定性也未达成**。收益证据：**未达标**；7962 笔费用、滑点和延迟后 ROI `-5.7215%`，每笔 P&L 95% CI 完全低于 0。
 - 最新可验证教训：高 steal/main CPU 与 freshness 降级再次共现，但本轮资源窗发生在 API 已开始恢复的邻近时段，不能当作严格同窗因果；同 PID、零重启、warning 为 0 时 event-loop P95 可从 `562ms` 退出窗口，而路径仍约 `377ms`。新增 226 笔又亏 `$90.26`，整体 calibration gap `-11.67pp`，所有标准价格、方向、概率和延迟桶 ROI 点估计仍为负。
 - 下一轮唯一优先项：先明确本地 `fastbot.py` / `tests/test_fastbot.py` timing/bucket 诊断归属；归属确认后再做四连接 IPv6 `/time` sidecar 的主探针同相与半 cadence 错相对照。归属仍不明时继续只读采样，不部署、不改 executor、不强制 IPv4、不建议购买机器。
+
+## 2026-08-01 06:15 JST — Fable 5 交叉复核、归属死锁解除、calibrated holdout 部署与 datetime 序列化事故
+
+### 交叉复核（只读）
+
+- 独立复算四个 observer 账本（SQLite `mode=ro`，`2026-07-31T16:43:45Z`）：8254 settled / 4891 wins，accuracy `59.2561%`，净 P&L `-$2,273.254123`，fees `$1,017.893181`，slippage `$62.903022`，cost `$39,068.562523`，ROI `-5.8186%`。与既有各轮快照口径一致，账本无造假迹象；BTC 结算行 `pnl_usd`/`official_outcome` 空值 0。
+- `fast_calibration_challenger.yaml` 逐项验证：四 bin `samples` 合计 8114；每个 `calibrated_probability` 精确等于 `(wins+1)/(samples+2)`；training cutoff `13:01:52Z` 严格早于 freeze `13:03:00Z`；bins 连续覆盖 `[0.5,1.0)`，覆盖外 fail-closed。
+- 事故锁复核：champion 于 `2026-07-22T04:06:57Z` 因 `portfolio_daily_loss_gate`（日亏 `-$18.055894`）锁定；favorite challenger 于 `2026-07-24T16:06:03Z`（冻结后约 54 分钟）因 `challenger_portfolio_daily_loss_gate`（`-$6.512921`）锁定。此后远端没有任何账本在积累推广证据；在 calibrated holdout 部署前，"继续等待"没有信息增益。
+
+### 归属死锁解除与提交
+
+- 判定：7/28 起被记为"归属不明"的 `fastbot.py` / `tests/test_fastbot.py` timing/bucket 改动为此前轮次按计划自产的诊断代码；44 项 Fast tests、前端 validator、`git diff --check` 全过，予以提交。
+- 提交：`95ad1f7`（探针 timing/TTFB 分桶诊断）、`e3f7f46`（冻结校准 challenger + service 双配置 + push.sh 白名单）、`d6ffa1c`（7/31 为止研究记录）。
+
+### 部署与事故
+
+- `17:08Z` 用 `deploy/push.sh` 白名单部署；随后安装双 `--config` service 单元并重启。第一次重启因 daemon-reload 生效时序仍以单配置启动；`17:14:24Z` 再次重启时旧进程正在幂等回放、SIGTERM 未及时处理，90 秒后被 systemd SIGKILL——回放从 rowid 0 幂等重建，无损。
+- `17:16:06Z` 双实验进程启动后，calibrated `run_once` 每周期抛 `TypeError: Object of type datetime is not JSON serializable`：PyYAML 把未加引号的 `training_cutoff_utc`/`frozen_at_utc` 解析为 `datetime`，经 intent `details_json` 与 state 写入进入 `json.dumps`。`17:21–20:56Z` 共 1175 次 fail-closed，calibrated 未写 state、未计样本；favorite 无校准段不受影响，两把事故锁未动，champion/observer 未受影响。
+- `20:50Z` 修复：加载时用 `_timestamp_text` 把 datetime 规范化为 ISO-Z 字符串（naive 按 UTC），冻结 yaml 一字未改；重新部署并于 `20:56:30Z` 重启后正常。修复与新增回归测试已提交 `bceda5e`，45 项 Fast tests 通过。漏检原因：此前测试未覆盖"从 YAML 文件加载含 datetime 配置"路径。
+- 无数据缺口：challenger 从 rowid 0 幂等回放 `created_ts >= frozen_at` 的 observer 记录，修复后补齐 `13:03Z` 以来全部窗口；事故只延迟收集，不产生洞。
+
+### 部署后快照（2026-07-31T21:05:17Z）
+
+- `calibrated-probability-holdout-v1`：`COLLECTING`，4 fills / 4 settled / 363 rejects，equity `$31.552155`，净 P&L `+$1.552155`；research：Brier `0.343828`、accuracy `0.5`、每笔 P&L 95% CI `[-$4.488558,+$5.264635]`。样本远不足，不得作任何推广解读。
+- favorite：`HALTED`，6/6，equity `$23.487079`，事故文件 mtime `2026-07-24T16:06:03Z` 未动。
+- 主引擎未重启（PID 起点 `2026-07-27T05:32:58Z`、`NRestarts=0`）；dashboard 由 push.sh 自动重启（无状态）。本地未提交改动仅剩 `FABLE5_CROSSCHECK_BRIEF.md`（审计工作文件，暂不入库）。
+
+### 本轮自动化独立复核、路径与账本增量
+
+- 本轮开始时已发现 `main` 比 `origin/main` 超前 3 个用户/Fable 提交，tracked 工作区干净，仅 `FABLE5_CROSSCHECK_BRIEF.md` 未跟踪；因此旧 timing/calibration “归属不明”阻塞已被用户提交事实解除。运行中用户/Fable 又提交 hotfix 为 `bceda5e`；本轮没有覆盖或重复提交该并发改动。
+- `2026-07-31T20:46:01Z` 初始 API 为 `ready=false`、3/4 online，ETH state age `3.514s`。BTC/ETH/SOL/XRP 完整 240 样本路径分别为 `478.02/461.29/478.71/481.65ms`；HTTP P95 `235.10/238.00/242.22/238.95ms`，event-loop P95 `242.62/223.18/236.37/242.62ms`，decision P95 `0.30/0.11/0.12/0.08ms`。官方 delay 四路均为 0 且 verified；pending execution 四路均为 0。
+- 邻近 `20:46:38Z–20:46:46Z` 的 8.000 秒资源窗：aggregate steal `59.19%`、iowait `1.12%`；main/challenger/dashboard 单核 CPU `85.87/13.62/0.12%`，MemAvailable `153,776,128B`，swap 使用 `173,281,280 / 1,073,737,728B`。三服务 active/running；当时 main/challenger/dashboard PID 为 `170952/211008/210931`、`NRestarts=0`。
+- 累计 RTDS/market reconnect 为 BTC `1/1`、ETH `3/2`、SOL `2/5`、XRP `2/4`；相对 23:55 记录新增 market reconnect `+1/+1/0/+2`，服务无自动重启。初始 freshness 失败随后自然恢复，不支持放宽 freshness 或修改重连。
+- `2026-07-31T20:53:09Z` 四个 observer SQLite `mode=ro` 直读为 9923 candidates / 8406 fills / 8403 settled / 4993 wins / 1517 rejects；净 P&L `-$2,207.053022`、fees `$1,035.889413`、slippage `$64.413680`、cost `$39,766.650822`、accuracy `59.4193%`、ROI `-5.5500%`、Brier `0.239068`、平均 selected probability `71.0008%`、calibration gap `-11.5815pp`，每笔 P&L 95% CI `[-$0.344521,-$0.180781]`。四库 settled 行的 official outcome/P&L/cost 空值和 observation ID 重复均为 0。
+- 相对 8179-settled 快照新增 224 笔，累计 P&L 回升 `$13.084462`、fees 增 `$26.498635`、slippage 增 `$2.192046`、cost 增 `$1,057.183137`；ROI 从 `-5.7354%` 改善到 `-5.5500%`。这只是累计深亏中的小幅回升；整体 CI 仍完全低于 0。UP/DOWN ROI `-6.2771%/-4.8963%`；四个 selected-probability 桶 ROI `-9.0537%/-6.0922%/-4.5077%/-3.0064%`；所有 intended-ask 与 latency 桶的点 ROI 也为负。arrival latency P50/P95/max `799.112/2635.572/11199.478ms`，不是当前 RTT。
+- champion 仍 12 settled / 3 wins、P&L `-$22.209812`、equity `$7.790188`、事故锁不变；favorite 仍 6/6、P&L `-$6.512921`、equity `$23.487079`、永久 HALTED。calibrated 修复后首次状态于 `21:05:21Z` 写出，4/4 settled、2 wins、P&L `+$1.552155`、CI 跨 0，`eligible=false`。
+
+### 修复验证、回放成本与最终状态
+
+- 修复前日志稳定复现 `TypeError: Object of type datetime is not JSON serializable`，并且 `fast_calibration_challenger_state.json` 缺失；根因与 hotfix 精确对应。新增回归测试先单独通过，随后本地 45 项 Fast tests、前端 validator、13 个 Fast 模块 `py_compile`、冻结 8114 样本/Laplace 映射检查与 `git diff --check` 全部通过。
+- 只使用 `deploy/push.sh` 白名单传输；脚本自动重启 dashboard。部署输出中 `du` 两次碰到正在消失的 SQLite WAL 并打印非致命警告，传输、点文件检查和 dashboard 重启仍成功。确认 favorite 永久 HALTED、calibrated 当时 0 fills/0 positions、主引擎四路 pending=0 后，单独重启 challenger；主进程未重启。
+- 新 challenger 于 `20:56:30Z` 启动。favorite 的全历史幂等核对约 6 分钟完成；两配置合计约 8 分 51 秒后 calibrated 首次状态落盘。回放期 challenger 曾约占单核 `69%`，完成后 `21:07:34Z–21:07:38Z` 4 秒窗回到 `0%`；新进程时间戳错误计数为 0，三服务 active/running，PID `170952/233587/233491`、`NRestarts=0`。远端精准回归测试和 `py_compile` 通过。
+- `21:07:51Z` 最终 API 恢复 `ready=true`、4/4 online、state age `0.242–0.959s`，但历史回放压力仍在既定 240 样本窗口中：HTTP P95 `241.44–320.37ms`、event-loop P95 `340.43–340.73ms`、decision P95 `0.08–0.15ms`，完整路径 `581.95–661.18ms`。该段必须保留；不得等待清空后回写为“已改善”，也不得缩短窗口或重启主进程制造漂亮数字。
+- 失败与边界：`CODEX_HOME` 仍未设置，按工作站默认 `.codex` 路径读取记忆；数次 SSH/只读 SQL 组合调用因握手或总时限超时，没有执行写操作；一条远端 PowerShell 命令因 `$()`/`||` 被本地解析而在执行前失败。所有核心数据都由后续独立成功调用取得。
+
+### 下一轮唯一优先项
+
+- 让 `calibrated-probability-holdout-v1` 自然运行且不改参数。timing/bucket 代码虽已提交并传到远端，但主 PID 未重启、尚未加载；下一轮只在 0 pending/0 position 安全窗口决定是否加载，并必须等待新的完整 240 样本后，才做四连接 IPv6 `/time` 同相与半 cadence 错相对照。不得把重启后的空窗口或 calibrated 的 4 笔正 P&L 当成达标证据；不改 executor、freshness、路由、事故锁，也不建议购买机器。
