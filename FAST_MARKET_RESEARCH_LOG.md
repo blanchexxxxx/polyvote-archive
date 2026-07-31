@@ -1347,6 +1347,7 @@ IPv6 `/book` 对照：
 - 只使用 `deploy/push.sh` 白名单传输；脚本自动重启 dashboard。部署输出中 `du` 两次碰到正在消失的 SQLite WAL 并打印非致命警告，传输、点文件检查和 dashboard 重启仍成功。确认 favorite 永久 HALTED、calibrated 当时 0 fills/0 positions、主引擎四路 pending=0 后，单独重启 challenger；主进程未重启。
 - 新 challenger 于 `20:56:30Z` 启动。favorite 的全历史幂等核对约 6 分钟完成；两配置合计约 8 分 51 秒后 calibrated 首次状态落盘。回放期 challenger 曾约占单核 `69%`，完成后 `21:07:34Z–21:07:38Z` 4 秒窗回到 `0%`；新进程时间戳错误计数为 0，三服务 active/running，PID `170952/233587/233491`、`NRestarts=0`。远端精准回归测试和 `py_compile` 通过。
 - `21:07:51Z` 最终 API 恢复 `ready=true`、4/4 online、state age `0.242–0.959s`，但历史回放压力仍在既定 240 样本窗口中：HTTP P95 `241.44–320.37ms`、event-loop P95 `340.43–340.73ms`、decision P95 `0.08–0.15ms`，完整路径 `581.95–661.18ms`。该段必须保留；不得等待清空后回写为“已改善”，也不得缩短窗口或重启主进程制造漂亮数字。
+- 推送和文档验证后的 `21:14:04Z` 最终核对仍为 `ready=true`、4/4 online、state age `0.161–2.484s`，四路 pending=0；HTTP P95 `240.19–284.13ms`、event-loop P95 `402.85–460.02ms`、decision P95 `0.06–0.14ms`，路径进一步升至 `643.11–744.29ms`。主 PID 仍未重启，不能隐藏或解释为窗口重置。
 - 失败与边界：`CODEX_HOME` 仍未设置，按工作站默认 `.codex` 路径读取记忆；数次 SSH/只读 SQL 组合调用因握手或总时限超时，没有执行写操作；一条远端 PowerShell 命令因 `$()`/`||` 被本地解析而在执行前失败。所有核心数据都由后续独立成功调用取得。
 
 ### 下一轮唯一优先项
