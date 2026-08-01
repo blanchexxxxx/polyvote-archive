@@ -1392,3 +1392,43 @@ IPv6 `/book` 对照：
 - `P95<100ms`：**当前未达成，稳定性也未达成**。收益证据：**未达标**；8579-settled API 累计 ROI 仍为 `-5.3054%`，最近可验证的完整直读 CI 仍完全低于 0。
 - 最新可验证教训：在不重启、不改代码且最终恢复 4/4 online 的条件下，路径仍在 `314–459ms` 间快速换挡并出现一次真实 strict-freshness 失败；短期 observer 回升不能替代完整校准与置信区间。SSH 采集缺失必须显式保留，不能用旧资源点解释当前 240 样本窗口。
 - 下一轮唯一优先项：先恢复不会中断现有隧道的只读 SSH 新连接，补齐 systemd/资源/calibrated/SQLite 证据；只有再次确认主引擎 0 pending/0 position 安全窗口后，才考虑重启主服务加载已部署的 timing/bucket 诊断，并在新的完整 240 样本形成前不作改善结论。
+
+## 2026-08-01 18:22 JST — timing/bucket 诊断安全加载；新 240 样本路径仍约 383–385ms
+
+### 约束、工作区与重启前证据
+
+- 本轮完整读取自动化记忆、`AGENTS.md`、`README.md`、`HANDOFF.md` 和 `FAST_MARKET_MEMORY.md`。初始分支为 `main...origin/main`；保护上一轮尚未提交的 `AGENTS.md`、`FAST_MARKET_MEMORY.md`、`FAST_MARKET_RESEARCH_LOG.md` 更新和既有未跟踪 `FABLE5_CROSSCHECK_BRIEF.md`，未暂存或覆盖它们。工作期间用户/Fable 并发提交 `8a2fd6e`，新增冻结期纪律；该提交在本轮安全重启和 240 样本采集开始后才出现，发现后立即停止后续 latency/sidecar 工作并保留其改动。
+- 新 SSH 握手仍间歇超时，但 Git OpenSSH 的成功重试补齐了只读 VPS 证据；既有 dashboard 隧道始终保持，不曾中断。三个服务重启前均 active/running、`NRestarts=0`，main/challenger/dashboard PID 为 `170952/233587/233491`。
+- `2026-08-01T08:48:00Z` 重启前 API 为严格 `SHADOW`、4/4 online、16 lanes、四路 pending 和 position 均为 0。BTC/ETH/SOL/XRP 完整 240 样本可控路径为 `376.76/379.33/319.36/333.78ms`；HTTP P95 `157.33–161.36ms`、event-loop P95 `161.92–217.83ms`、decision P95 `0.10–0.14ms`，platform delay 均为 `0ms` 且 verified。
+- 邻近 `08:50:34Z–08:50:42Z` 的 8 秒资源窗：aggregate steal `56.92%`、iowait `0.40%`；main/challenger/dashboard 单核 CPU `78.75/7.75/0.63%`；MemAvailable `145,682,432 / 434,307,072B`，swap 使用 `166,780,928 / 1,073,737,728B`。
+
+### 账本、校准和永久事故锁
+
+- `2026-08-01T08:53:10Z` 以 SQLite `mode=ro` 直读四个 observer 账本：10303 candidates / 8713 fills / 8713 settled / 5177 wins / 1590 rejects。费用、滑点和延迟后净 P&L `-$2,097.058871`、fees `$1,078.462720`、slippage `$66.202419`、cost `$41,151.276071`、accuracy `59.4170%`、ROI `-5.0960%`、Brier `0.238659`；平均 selected probability `70.8721%`，比实际 accuracy 高 `11.4551pp`。每笔 P&L 普通 95% CI `[-$0.321605,-$0.159758]`，仍完全低于 0。
+- intended-ask 桶中 `<0.40` 的点 ROI 转正为 `+10.6028%`，但只有 63 笔且每笔 P&L CI `[-$1.379122,+$2.271335]` 跨 0；其余四个价格桶 ROI 为 `-7.0044%/-7.0082%/-4.9147%/-2.7194%`。UP/DOWN ROI `-5.7027%/-4.5474%`；四个 selected-probability 桶 ROI `-8.1076%/-5.7705%/-4.1303%/-2.5864%`，CI 全部低于 0。arrival latency P50/P95/max `800.205/2641.821/11199.478ms`，不是 RTT；五个 latency 桶 ROI `-0.0367%/-8.5531%/-3.5511%/-3.9501%/-3.2644%`，点估计全部为负。
+- champion 保持永久 `portfolio_incident_latched`：12/12 settled、3 wins、P&L `-$22.209812`、fees `$1.602611`、slippage `$0.338621`、ROI `-56.8945%`、equity `$7.790189`、0 positions。favorite 保持永久 HALTED：6/6、P&L `-$6.512921`、ROI `-27.3899%`、equity `$23.487079`、CI 跨 0；没有解除或重置。
+- 新的关键结果：`calibrated-probability-holdout-v1` 已在 9/9 官方结算、2 wins 时净亏 `-$12.429296`，fees `$1.069778`、staked `$27.695496`、ROI `-44.8784%`、Brier `0.338608`、calibration gap `-37.6732pp`，每笔 P&L CI `[-$3.676451,+$0.914386]`。它于 `2026-08-01T02:30:41Z` 触发自己的 `challenger_portfolio_daily_loss_gate` 并永久 `HALTED`；未达到 500 笔/336 小时，不得解除、重置或按中途结果改桶。
+
+### 唯一运维动作与新完整窗口
+
+- 远端 `fastbot.py` SHA256 与本地完全一致。`08:56:10Z` 和 `08:56:18Z` 两次独立安全检查均为 ready、4/4 online、0 pending、0 positions、champion 与 observer 全部 WAIT；因此只在 `08:57:05Z` 重启 `polyvote-fast.service` 一次，加载已部署但旧 PID 尚未载入的只读 `clob_http_timing`/TTFB bucket 诊断。新 main PID `239611`，未重启 challenger 或 dashboard，未部署、未改代码、配置、窗口、cadence、freshness、风控、账本或 live mode。
+- 重启后明确等待四个资产各自积满全新的 240 样本；没有使用空窗口或缩短统计口径。`2026-08-01T09:18:16Z` 的完整结果：
+
+| Asset | HTTP P50/P95/max ms | queue P50/P95/max ms | socket TTFB P50/P95/max ms | event-loop P50/P95/max ms | decision P50/P95/max ms | path P95 ms | TTFB buckets `<100 / 100–140 / 140–180 / 180–500 / >=500` |
+|---|---|---|---|---|---|---:|---|
+| BTC | 78.16 / 161.16 / 410.55 | 0.57 / 118.78 / 641.32 | 78.13 / 161.13 / 410.52 | 57.74 / 224.13 / 620.53 | 0.04 / 0.09 / 76.35 | 385.38 | 211 / 8 / 14 / 7 / 0 |
+| ETH | 78.57 / 158.90 / 241.42 | 0.46 / 79.54 / 481.08 | 78.55 / 158.87 / 241.40 | 56.70 / 224.13 / 620.53 | 0.04 / 0.10 / 75.15 | 383.13 | 199 / 11 / 23 / 7 / 0 |
+| SOL | 78.44 / 160.45 / 242.91 | 0.44 / 80.53 / 558.88 | 78.42 / 160.43 / 242.89 | 57.65 / 224.13 / 620.53 | 0.03 / 0.09 / 79.76 | 384.67 | 192 / 6 / 36 / 6 / 0 |
+| XRP | 78.53 / 160.19 / 320.06 | 0.30 / 78.57 / 562.88 | 78.52 / 160.16 / 320.04 | 57.66 / 223.66 / 620.53 | 0.02 / 0.05 / 0.09 | 383.90 | 211 / 6 / 14 / 9 / 0 |
+
+- body-read P95 四路均仅 `0.03ms`；platform delay 继续为逐路 `0ms` verified。TTFB 基础模式仍约 `78ms`，但每路 29–48/240 个样本落在 `100–500ms`，足以让主探针 TTFB P95 进入 `158.87–161.13ms`；没有 `>=500ms` TTFB 样本。新增 bucket 证明的是次级模式频率，不证明其唯一成因。
+- 20 分钟期间 172 次 dashboard API 监控零请求错误，但有 6 次 `ready=false`，最差短暂 0/4 online、最大 state age `4.752s`，均在不再次重启的情况下恢复；滑动路径横跨 `215.69–550.31ms`。新进程日志有 3 条 `RTDS price stream silent for 10s; forcing reconnect` warning 和 0 error；challenger 新进程无新 error。
+- 完整窗口后的 `09:19:34Z–09:19:42Z` 8 秒资源窗：aggregate steal `67.25%`、iowait `0.52%`；main/challenger/dashboard 单核 CPU `112.63/11.50/0.00%`；MemAvailable `155,115,520B`，swap 使用 `106,627,072B`。三服务最终均 active。短资源窗与 240 样本滑动指标仍不等尺度，不能把 steal 当作唯一因果或据此建议付费扩容。
+- `09:18:16Z` 最终聚合 API observer 为 8717 settled / 5177 wins，净 P&L `-$2,113.829590`、fees `$1,079.599762`、staked `$41,168.046790`、accuracy `59.3897%`、ROI `-5.1346%`。相对固定 8713-settled SQL 点新增 4 笔并再亏 `$16.770719`；完整统计比较仍固定使用上面的直读快照。
+
+### 验证、决定与下一轮唯一优先项
+
+- `P95<100ms`：**未达成，稳定性也未达成**；新 PID 的完整路径为 `383.13–385.38ms`，172 次跟踪还出现 6 次 strict-freshness 失败。收益证据：**未达标**；observer 总体 ROI/CI 仍显著为负，favorite 与 calibrated 两个自然时间 holdout 都已触发各自永久日亏锁。
+- 本轮唯一运维动作是安全重启主服务加载只读诊断；没有第二个修改、部署、提交、推送、路由/executor/freshness/事故锁/云资源变更。诊断加载成功，但不是性能改善。
+- 最新可验证教训：主探针基础 TTFB 约 `78ms`，而 12.1–20.0% 的样本落在 `100–500ms`，使 P95 固定在约 `159–161ms`；同时 event-loop P95 约 `224ms` 且 strict freshness 仍失败。两个校准/价格 holdout 都已用独立有限现金账本快速否定，不能因小样本 CI 跨 0 而重置继续试。
+- 下一轮唯一优先项：遵守用户并发提交的冻结期纪律，在 `2026-08-14T13:03:00Z` 前每天最多一次只读健康检查，只核对三服务 active、4/4 online 和 champion/favorite/calibrated 三个事故锁未变；不再进行 latency/steal/TTFB/sidecar 研究、不重启、不改参数或新建实验。calibrated 已永久 HALTED，既定评估点只记录失败/样本不足并由用户决定收摊评审。
