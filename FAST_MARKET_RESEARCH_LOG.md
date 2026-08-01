@@ -1353,3 +1353,42 @@ IPv6 `/book` 对照：
 ### 下一轮唯一优先项
 
 - 让 `calibrated-probability-holdout-v1` 自然运行且不改参数。timing/bucket 代码虽已提交并传到远端，但主 PID 未重启、尚未加载；下一轮只在 0 pending/0 position 安全窗口决定是否加载，并必须等待新的完整 240 样本后，才做四连接 IPv6 `/time` 同相与半 cadence 错相对照。不得把重启后的空窗口或 calibrated 的 4 笔正 P&L 当成达标证据；不改 executor、freshness、路由、事故锁，也不建议购买机器。
+
+## 2026-08-01 11:53 JST — 路径仍高于目标；SSH 新连接阻塞，保持只读
+
+### 约束、工作区与采集边界
+
+- 本轮完整读取自动化记忆、`AGENTS.md`、`README.md`、`HANDOFF.md` 和 `FAST_MARKET_MEMORY.md`。`CODEX_HOME` 未注入，继续使用工作站标准位置 `C:\Users\<user>\.codex`；没有输出或修改 SSH 密钥、坐标或秘密。
+- 初始分支为 `main...origin/main`，tracked 工作区干净，唯一既有未跟踪文件为 `FABLE5_CROSSCHECK_BRIEF.md`，本轮继续保护且不暂存。
+- 既有本地隧道持续可读 `http://127.0.0.1:8920/api/fast/state`，因此 API 数据来自 VPS 状态文件并带远端时间戳。Windows OpenSSH 三次及 Git OpenSSH 一次新的 SSH 握手均在执行命令前超时；现有隧道 TCP 仍为 established。为避免失去唯一健康观测通道，本轮不终止或重建隧道。
+- 因 SSH 阻塞，本轮无法刷新 CPU steal/iowait、内存/swap、三个 systemd 服务 PID/restart/journal、calibrated 独立状态文件和 SQLite 直读统计。旧值没有被冒充为当前值；也没有部署、服务重启、主窗口清空、路由/freshness/风控/账本/live mode/云资源变更。
+
+### API、路径与 freshness
+
+- `2026-08-01T02:48:37Z` 的完整 API 为严格 `SHADOW`、`ready=true`、4/4 online、16 lanes、四路 pending execution 与 position 均为 0。四路完整 240 样本如下；可控路径继续是 `HTTP P95 + event-loop P95 + decision P95`，platform delay 仍逐路 `0ms` 且 verified：
+
+| Asset | HTTP P50/P95/max ms | queue P50/P95/max ms | socket TTFB P50/P95/max ms | body P95/max ms | event-loop P50/P95/max ms | decision P50/P95/max ms | path P95 ms |
+|---|---|---|---|---|---|---|---:|
+| BTC | 78.11 / 160.34 / 314.28 | 0.31 / 80.55 / 241.15 | 78.06 / 160.33 / 314.26 | 0.04 / 58.13 | 36.69 / 176.51 / 379.26 | 0.04 / 0.09 / 75.31 | 336.94 |
+| ETH | 78.10 / 160.91 / 317.71 | 0.39 / 79.35 / 245.40 | 78.04 / 160.89 / 317.66 | 0.03 / 2.90 | 36.70 / 176.51 / 379.27 | 0.05 / 0.16 / 155.19 | 337.58 |
+| SOL | 77.85 / 160.47 / 397.92 | 0.29 / 78.92 / 246.83 | 77.80 / 160.45 / 397.90 | 0.03 / 5.42 | 36.85 / 197.79 / 379.26 | 0.04 / 0.12 / 79.19 | 358.38 |
+| XRP | 78.48 / 158.50 / 240.27 | 0.42 / 79.65 / 322.27 | 78.46 / 158.48 / 240.25 | 0.03 / 50.96 | 37.45 / 179.52 / 379.27 | 0.03 / 0.07 / 74.21 | 338.09 |
+
+- 10 次约五秒间隔跟踪中，第 2 次为 `ready=false`、3/4 online、最大 state age `3.119s`；其余 9 次为 4/4，随后无重启恢复。路径范围 `314.14–459.14ms`，没有任何 `<100ms` 快照。
+- `02:53:00Z` 最终 API 为 `ready=true`、4/4 online、最大 state age `1.284s`；路径 BTC/ETH/SOL/XRP `328.68/321.60/322.26/320.76ms`，HTTP P95 `159.04–166.89ms`、event-loop P95 `161.62–161.63ms`、decision P95 `0.10–0.17ms`。累计 RTDS/market reconnect 为 BTC `1/2`、ETH `3/3`、SOL `2/6`、XRP `2/5`；相对上轮末尾新增 market reconnect `+1/+1/+1/+1`，但自动恢复和缺少 journal 核对不支持修改 freshness 或重连。
+- 文档复核后的 `02:55:16Z` 健康检查仍为 `ready=true`、4/4 online、最大 state age `1.273s`、0 champion positions；路径又升至 `398.41–448.14ms`，observer 推进到 8580 settled、P&L `-$2,156.430908`。这进一步说明 `02:53Z` 的较低端点不是稳定恢复。
+
+### 账本与研究证据
+
+- champion 仍为 12/12 settled、3 wins、P&L `-$22.209811`、fees `$1.602610`、staked `$39.036811`、equity `$7.790189`、0 positions，永久 `portfolio_incident_latched`。
+- favorite 仍为 6/6 settled、3 wins、P&L `-$6.512921`、fees `$0.521856`、staked `$23.778521`、equity `$23.487079`，runtime `179.675h`，永久 `HALTED` 且 `eligible=false`；Brier `0.317032`、calibration gap `-24.649796pp`、每笔 P&L 95% CI `[-$3.657492,+$1.486519]`。没有解除事故锁或回改冻结参数。
+- `02:53Z` 聚合 API observer 为 10142 candidates / 8580 fills / 8579 settled / 5103 wins / 1562 rejects，净 P&L `-$2,151.663145`、fees `$1,059.025754`、staked `$40,555.717545`、accuracy `59.4825%`、ROI `-5.3054%`；历史 arrival average `1031.719ms` 仍不是当前 RTT。
+- 相对上轮 8403-settled 直读 SQL，API 新增 176 笔且累计 P&L 回升 `$55.389877`，fees 增 `$23.136341`、staked 增 `$789.066723`，ROI 从 `-5.5500%` 回升到 `-5.3054%`。累计值仍显著为负；本轮未能直读 slippage、Brier、calibration gap、CI、价格/方向/概率/latency 分桶，因此最近完整证据仍是 8403-settled 快照：slippage `$64.413680`、Brier `0.239068`、CI `[-$0.344521,-$0.180781]`，所有标准分桶 ROI 点估计为负。
+- 聚合 API 只暴露 favorite challenger；calibrated 独立状态未通过该端点提供。本轮不能验证它是否超过上次精确状态的 4 settled / `+$1.552155`，因此不报告推测值，更不能把该小样本当正期望证据。
+
+### 验证、决定与下一轮唯一优先项
+
+- 精确工作区通过 45 项 Fast tests、前端 validator、13 个 Fast Python 模块 `py_compile`。本轮无运行代码改动；文档更新后还需完成同步内容和 `git diff --check` 复核。
+- `P95<100ms`：**当前未达成，稳定性也未达成**。收益证据：**未达标**；8579-settled API 累计 ROI 仍为 `-5.3054%`，最近可验证的完整直读 CI 仍完全低于 0。
+- 最新可验证教训：在不重启、不改代码且最终恢复 4/4 online 的条件下，路径仍在 `314–459ms` 间快速换挡并出现一次真实 strict-freshness 失败；短期 observer 回升不能替代完整校准与置信区间。SSH 采集缺失必须显式保留，不能用旧资源点解释当前 240 样本窗口。
+- 下一轮唯一优先项：先恢复不会中断现有隧道的只读 SSH 新连接，补齐 systemd/资源/calibrated/SQLite 证据；只有再次确认主引擎 0 pending/0 position 安全窗口后，才考虑重启主服务加载已部署的 timing/bucket 诊断，并在新的完整 240 样本形成前不作改善结论。

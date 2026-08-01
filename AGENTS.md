@@ -6,7 +6,7 @@ Local workstation override (2026-07-24): use `C:\Users\<user>\.ssh\<ssh-key>.pem
 
 # Fast Market 工作记忆
 
-最后更新：2026-08-01 06:08 JST
+最后更新：2026-08-01 11:53 JST
 
 这份文件是当前快市场系统的唯一快速交接入口。旧 `HANDOFF.md` 主要描述已退休的慢市场，而且存在编码损坏；继续工作时先读本文件。
 
@@ -33,7 +33,9 @@ Local workstation override (2026-07-24): use `C:\Users\<user>\.ssh\<ssh-key>.pem
 - 2026-07-31 17:52 JST 的同 PID、零重启只读复查先捕获 `ready=false`、3/4 online，XRP state age `3.201s`；四路完整路径 `718.30–721.21ms`，HTTP P95 `156.04–158.91ms`、event-loop P95 `562.20–562.21ms`、decision P95 `0.05–0.10ms`，event-loop max `7583.15ms`。随后无需重启恢复 4/4，10/10 跟踪路径仍在 `278.05–397.95ms`，08:52 为 `376.74–378.23ms`，08:57 又自然降至 `301.24–304.07ms`。邻近 10 秒资源窗 aggregate steal/main 单核 CPU/iowait 为 `60.18%/95.05%/1.26%`；三服务 PID/restart count 与 warning 计数不变。累计 reconnect 增至 BTC `1/0`、ETH `3/1`、SOL `2/5`、XRP `2/2`，但自动恢复和空 warning 不支持立即修改 freshness 或重连。
 - 2026-07-31 23:55 JST 的只读复查初始为 4/4 online、完整路径 `453.82–490.24ms`；同步 10.351 秒窗 aggregate steal/main 单核 CPU/iowait 为 `64.82%/108.50%/3.14%`，窗后路径升至 `624.14–666.22ms`。随后 8 次跟踪有一次短暂 3/4 strict freshness 失败（最大 state age `3.231s`）并无重启恢复，路径一度 `538.85–546.03ms`，最终健康核对又自然降至 `240.77–243.83ms`。三服务 PID/restart count 继续为 `170952/113705/172845` 和 0，最近各 500 行告警为 0，reconnect 保持 BTC `1/0`、ETH `3/1`、SOL `2/5`、XRP `2/2`。这再次记录高调度压力、event-loop 尾部和 freshness 失败共现，但短资源窗与滑动 P95 不等尺度，不能证明唯一因果或支持付费扩容。
 - 2026-08-01 06:14 JST 本轮先捕获 `ready=false`、3/4 online，ETH state age `3.514s`，四路完整路径 `461.29–481.65ms`；邻近 8 秒资源窗 aggregate steal/main 单核 CPU/iowait 为 `59.19%/85.87%/1.12%`。修复并重启 challenger 后的全历史幂等核对耗时约 8 分 51 秒，最终 API 恢复 4/4，但该压力仍在 240 样本窗口内，路径先为 `581.95–661.18ms`、06:14 又升至 `643.11–744.29ms`。这不是改善证据；也不得通过等待窗口清空、缩短窗口或重启主进程来隐藏该段。
+- 2026-08-01 11:53 JST 通过既有 SSH 隧道完成只读 API 复查，最终为 `ready=true`、4/4 online，四路完整 240 样本可控路径 `320.76–328.68ms`：HTTP P95 `159.04–166.89ms`、event-loop P95 `161.62–161.63ms`、decision P95 `0.10–0.17ms`。此前 10 次短跟踪中有一次真实 3/4 strict freshness 失败（最大 state age `3.119s`），随后无重启恢复，路径在 `314.14–459.14ms` 间换挡。四次新的 SSH 握手均在执行命令前超时，既有隧道仍健康，因此本轮没有刷新 steal/iowait、内存/swap、systemd/日志、calibrated 独立状态或直读 SQL，也没有冒险中断隧道、重启或部署；缺失数据不得用旧值冒充。
 - observer 在 8403 笔官方结算的只读 SQL 快照中，费用、滑点和延迟后净 P&L `-$2,207.053022`、ROI `-5.5500%`、Brier `0.239068`，每笔 P&L 95% CI `[-$0.344521,-$0.180781]`。相对 8179 笔快照新增 224 笔并回升 `$13.084462`，但平均 selected probability 仍比实际 accuracy 高 `11.5815pp`，所有标准 intended-ask、方向、selected-probability 和 latency 桶的 ROI 点估计仍为负；短期回升没有改变累计负期望或推广结论。
+- 2026-08-01 11:53 JST 的聚合 API observer 已到 8579 settled / 5103 wins，净 P&L `-$2,151.663145`、fees `$1,059.025754`、staked `$40,555.717545`、accuracy `59.4825%`、ROI `-5.3054%`。相对上次 8403-settled 直读 SQL 新增 176 笔且累计 P&L 回升 `$55.389877`，但累计值仍深亏；由于本轮 SSH 阻塞，Brier、校准 gap、CI 与标准分桶没有重新直读，最近可验证的完整统计仍是上一条 8403-settled 快照，不能把短期回升解释为正期望。
 - 2026-08-01 校准 challenger 部署后暴露出一个明确的 fail-closed 状态写入故障：PyYAML 将未加引号的 `training_cutoff_utc` 解析成 `datetime`，导致每 10 秒写 JSON 时抛出 `TypeError`，状态文件缺失。现已只把配置时间戳规范化为 UTC 字符串，不改冻结点、校准桶、edge、风控或账本；45 项本地 Fast tests、前端 validator、13 模块静态编译、冻结证据检查、远端精准测试与静态编译均通过。部署后状态持续写入且新进程错误计数为 0。
 - 去除 champion SQLite 的无变化 window/account 刷新后，四库修改频率短窗约降 `87.5%`、主进程单核 CPU 约降 `20.2%`，但 process write_bytes 仅降约 `10.7%`；四份每秒原子状态 JSON 及文件系统元数据放大成为主要剩余写入。
 - 同盘受控基线进一步修正了写入口径：三次各 20 次原子替换的 gross `write_bytes / payload` 均约 `1.089×`，不是主进程同窗的 `5.45×`；主进程 `write_bytes=5,922,816B` 同时有 `cancelled_write_bytes=4,866,048B`，净记账 `1,056,768B` 约为状态载荷 `1,086,735B` 的 `0.97×`。不得把 gross `write_bytes` 单独称为物理写入，也没有证据支持为此迁移 tmpfs 或放弃原子读取语义。
@@ -185,7 +187,7 @@ journalctl --user -u polyvote-fast-challenger.service -n 100 --no-pager
 1. 保持 `favorite-price-holdout-v1` 参数冻结，收集至少 500 笔官方结算和 336 小时运行；不得因中途盈亏改规则或重置账本。
 2. 保持已运行的 `calibrated-probability-holdout-v1` 四个校准桶、13:03 UTC 冻结点和独立账本不变；至少 500 笔官方结算和 336 小时后才评估。当前 4 笔正 P&L 与跨 0 的宽 CI 不能作为证据，价格区间和方向差异只能另立后续自然时间 holdout。
 3. 把四条策略通道分别建立独立账本；在此之前不要把 16 lanes 描述成 16 个已交易 bot。
-4. 保持主进程、状态 writer、1 秒 freshness、原子读取语义和现有指标不变。timing/bucket 诊断已提交并传到远端，但主 PID 未重启，尚未加载；下一轮只在 0 pending/0 position 安全窗口决定是否重启主进程加载诊断，并必须等待新的完整 240 样本窗口后，再做四连接 IPv6 `/time` sidecar 同相与半 cadence 错相对照。不得用重启后的空窗口声称达标，也不得先改 executor、强制 IPv4 或购买机器。
+4. 冻结期纪律（用户 2026-08-01 指示，有效至 `2026-08-14T13:03:00Z`）：停止延迟/steal/TTFB/sidecar 研究轮次，也不为加载 timing/bucket 诊断重启主进程。每天最多一次健康检查：三服务 active、4/4 online、两个事故锁文件未变、calibrated state 为 `COLLECTING` 且 settled 在增长；出现 fail-closed 异常才介入修复。不改参数、不回看调仓、不做新实验、不改 executor、不强制 IPv4、不购买机器。评估点到达且 ≥500 笔官方结算后做一次完整评估（费用/滑点后每笔净收益 95% CI），按结果决定升档或收摊评审。每轮收尾把改动提交进 git。保持主进程、状态 writer、1 秒 freshness、原子读取语义和现有指标不变；sidecar 同相/错相对照留待评估之后再议。
 5. 若接入 CVD/清算，使用一个共享 Binance Futures collector，再广播给四资产引擎；不要每个策略重复开连接。
 
 ## 安全边界
