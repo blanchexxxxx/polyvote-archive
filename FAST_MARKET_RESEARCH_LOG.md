@@ -1432,3 +1432,13 @@ IPv6 `/book` 对照：
 - 本轮唯一运维动作是安全重启主服务加载只读诊断；没有第二个修改、部署、提交、推送、路由/executor/freshness/事故锁/云资源变更。诊断加载成功，但不是性能改善。
 - 最新可验证教训：主探针基础 TTFB 约 `78ms`，而 12.1–20.0% 的样本落在 `100–500ms`，使 P95 固定在约 `159–161ms`；同时 event-loop P95 约 `224ms` 且 strict freshness 仍失败。两个校准/价格 holdout 都已用独立有限现金账本快速否定，不能因小样本 CI 跨 0 而重置继续试。
 - 下一轮唯一优先项：遵守用户并发提交的冻结期纪律，在 `2026-08-14T13:03:00Z` 前每天最多一次只读健康检查，只核对三服务 active、4/4 online 和 champion/favorite/calibrated 三个事故锁未变；不再进行 latency/steal/TTFB/sidecar 研究、不重启、不改参数或新建实验。calibrated 已永久 HALTED，既定评估点只记录失败/样本不足并由用户决定收摊评审。
+
+## 2026-08-01 23:47 JST — 冻结期同日重复触发；按每日上限跳过运行检查
+
+- 本轮完整读取自动化记忆、`AGENTS.md`、`README.md`、`HANDOFF.md` 和 `FAST_MARKET_MEMORY.md`。初始分支仍为 `main...origin/main`，tracked 工作区干净；既有未跟踪 `FABLE5_CROSSCHECK_BRIEF.md` 继续受到保护，未读取、修改或暂存。
+- 权威冻结期规则截至 `2026-08-14T13:03:00Z` 限制每天最多一次健康检查。当天的检查已在 `18:22 JST` 完成，并已验证三服务 active、最终 4/4 online、三个事故锁不变；本轮自动化仅约 5 小时后再次触发，因此没有再次访问 dashboard API、VPS、SSH、SQLite、systemd 或 journal，也没有读取 `deploy/pi.env`、运行 CLOB probe、资源窗或 sidecar。
+- 本轮没有新的原始运行指标，也没有可计算的运行时差异；不得把 `18:22 JST` 的数值重新标记为 `23:47 JST` 快照。最近可验证结论保持不变：完整可控路径 P95 `383.13–385.38ms`，未达到且未稳定达到 `<100ms`；observer 8713-settled 直读 ROI `-5.0960%`、每笔 P&L 95% CI `[-$0.321605,-$0.159758]`，收益证据未达标；champion、favorite、calibrated 三个有限资金账本均保持永久事故锁。
+- 假设与验证：同日重复执行只读检查仍会突破明确的每日上限并给冻结期引入不必要负载。通过自动化记忆中的上一轮结束时间、当天已完成的健康检查记录和当前本地时间核对，该条件已成立；结果是 fail-closed 跳过，而不是以“每轮必须采集”为由重复探测。
+- 本轮没有代码、配置、指标、风控、账本、服务、路由、live mode 或云资源改动；没有部署、重启或付费建议。没有新的可复用运行教训需要同步进 `FAST_MARKET_MEMORY.md`，现有“每天最多一次”规则已经完整覆盖本次情形。
+- 当前精确工作区通过 45 项 Fast tests、前端 validator、13 个 Fast Python 模块 `py_compile` 和 `git diff --check`；验证仅在本地运行。
+- 下一轮唯一优先项：跨入新的 JST 自然日后，仍只允许一次最小只读健康检查，核对三服务 active、4/4 online 和 champion/favorite/calibrated 三个事故锁持续 fail-closed；若同日再次触发则继续跳过，不进行 latency/steal/TTFB/sidecar 研究。
