@@ -1463,3 +1463,12 @@ IPv6 `/book` 对照：
 - 假设与验证：同一 JST 自然日重复执行健康检查会违反明确的每日上限，并给冻结期引入无信息增益的运行访问。通过自动化记忆、上一条研究记录、提交 `579513f` 和本机时间交叉核对，已确认当天检查完成；结果是跳过，而不是再次探测。
 - 本轮没有代码、配置、指标、freshness、风控、账本、服务、路由、live mode、云资源、部署或重启动作，也不提出付费升级。没有新的可复用运行教训需要同步进 `FAST_MARKET_MEMORY.md`；现有冻结规则已完整覆盖。
 - 下一轮唯一优先项：任何后续 `2026-08-02` JST 触发继续跳过运行访问；进入下一个 JST 自然日后，最多执行一次最小只读健康检查，只核对三服务 active、4/4 online 和 champion/favorite/calibrated 三个事故锁 hash/mtime/trigger 持续 fail-closed。
+
+## 2026-08-02 17:48 JST — 冻结期第三次同日触发；继续按每日上限跳过运行访问
+
+- 本轮完整读取自动化记忆、`AGENTS.md`、`README.md`、`HANDOFF.md` 和 `FAST_MARKET_MEMORY.md`。初始分支为 `main...origin/main`，tracked 工作区干净；既有未跟踪 `FABLE5_CROSSCHECK_BRIEF.md` 继续受到保护，未读取、修改或暂存。`CODEX_HOME` 未注入，按工作站标准位置 `C:\Users\<user>\.codex` 读取自动化记忆。
+- 权威冻结期规则截至 `2026-08-14T13:03:00Z` 限制每天最多一次健康检查。`2026-08-02` JST 的唯一检查已于 `05:49–05:51 JST` 完成，`11:47 JST` 的重复触发也已 fail-closed 跳过；本次 `17:48 JST` 再次触发，因此没有访问 dashboard API、VPS、SSH、SQLite、systemd、journal、资源指标、CLOB probe 或 sidecar，没有读取 `deploy/pi.env`，也没有把旧值重新标记为当前快照。
+- 本轮没有新的原始运行指标或可计算的运行时差异。最近可验证证据仍为：完整可控路径 P95 `383.13–385.38ms`，故 `<100ms` 未建立；当天唯一健康检查的 observer 为 9019 settled、累计 P&L `-$2,189.474694`，最近完整 SQL 仍为 8713 settled、ROI `-5.0960%`、每笔 P&L 95% CI `[-$0.321605,-$0.159758]`，故收益证据未达标。三服务 active、4/4 online 和三个永久事故锁未变只代表 `05:49–05:51 JST` 的已验证状态，不冒充本轮新状态。
+- 假设与验证：同一 JST 自然日第三次运行访问仍会违反明确的每日上限，并带来零信息增益。通过自动化记忆、研究日志、提交 `579513f`/`cd8d722` 和本机时间交叉核对，已确认当天检查及前一次跳过记录均已完成；结果继续是 fail-closed 跳过，而不是重复探测。
+- 本轮没有代码、配置、指标、freshness、风控、账本、服务、路由、live mode、云资源、部署或重启动作，也不提出付费升级。没有新的可复用运行教训需要同步进 `FAST_MARKET_MEMORY.md`；现有冻结规则已经覆盖本次情形。
+- 下一轮唯一优先项：任何后续 `2026-08-02` JST 触发继续跳过运行访问；进入下一个 JST 自然日后，最多执行一次最小只读健康检查，只核对三服务 active、4/4 online 和 champion/favorite/calibrated 三个事故锁 hash/mtime/trigger 持续 fail-closed。
