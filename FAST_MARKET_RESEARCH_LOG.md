@@ -1493,3 +1493,15 @@ IPv6 `/book` 对照：
 - `P95<100ms`：本轮依冻结规则没有重新采集，不能声称当前达标；最近完整可验证窗口仍为 `383.13–385.38ms`，因此已知证据不达标且不稳定。收益证据：**未达标**；observer 累计 P&L 继续恶化，最近完整 ROI/CI 也否定推广。
 - 假设与结果：是否出现需要介入的新运行异常。单次 API 已 ready 且 4/4 online，三服务同 PID/零重启，三份事故文件逐字节 hash 未变；没有明确、可复现、低风险的软件问题支持改动。本轮只追加研究记录，不改运行代码、配置、指标、freshness、风控、账本、route、live mode 或云资源，也不建议购买机器。没有新的可复用运行教训需要同步进 `FAST_MARKET_MEMORY.md`。
 - 下一轮唯一优先项：任何后续 `2026-08-03` JST 触发继续 fail-closed 跳过运行访问；进入下一个 JST 自然日后，最多执行一次同样的最小健康检查，只核对三服务 active、4/4 online 和三个事故锁 hash/mtime/trigger 持续 fail-closed。冻结期内不恢复 latency/steal/TTFB/sidecar 研究。
+
+## 2026-08-04 03:58 JST — 冻结期每日最小健康检查；4/4 online、三服务与三锁未变
+
+- 本轮完整读取自动化记忆、`AGENTS.md`、`README.md`、`HANDOFF.md` 和 `FAST_MARKET_MEMORY.md`。`FAST_MARKET_MEMORY.md` 与 `AGENTS.md` 中的同步副本精确一致。初始分支为 `main...origin/main`，tracked 工作区干净；既有未跟踪 `FABLE5_CROSSCHECK_BRIEF.md` 继续受到保护，未读取、修改或暂存。`CODEX_HOME` 未注入，按工作站标准位置 `C:\Users\<user>\.codex` 读取自动化记忆。
+- 严格执行截至 `2026-08-14T13:03:00Z` 的冻结规则。本轮是 `2026-08-04` JST 唯一一次最小健康检查；没有运行 latency/steal/TTFB/sidecar、CLOB probe、SQLite 统计、资源窗或 journal 检查，没有重启、部署、参数变更、新实验或付费资源动作。
+- `2026-08-03T18:56:56.309126Z` 的单次聚合 API 投影为严格 `SHADOW`、`ready=true`，BTC/ETH/SOL/XRP 4/4 online，state age 分别为 `1.517/1.276/0.551/0.799s`，16 lanes、0 champion positions。API 快照生成时间为 `18:56:57.038451Z`。本轮没有读取或记录 HTTP、decision、event-loop、ACK floor 或重连指标，以免把每日健康检查扩展成冻结期延迟研究。
+- 同一 API 投影的 observer 为 10533 fills / 10530 settled / 6241 wins、累计 P&L `-$2,426.478516`。相对 `2026-08-03` 唯一健康检查的 10300 settled / `-$2,320.529146`，新增 230 笔官方结算且累计 P&L 再降 `$105.949370`；收益证据继续未达标。冻结期没有直读当前 fees、slippage、ROI、Brier、校准、CI 或分桶，旧完整 SQL 值没有被冒充为当前统计；最近完整证据仍为 8713 settled、ROI `-5.0960%`、每笔 P&L 95% CI `[-$0.321605,-$0.159758]`。
+- `2026-08-03T18:57:53Z` 的只读 SSH 复核确认 `polyvote-fast.service`、`polyvote-fast-challenger.service`、`polyvote-fast-dashboard.service` 均为 `active/running`，PID 继续为 `239611/233587/233491`，`NRestarts=0`。系统 OpenSSH 首次握手在执行远端命令前超时，Git OpenSSH 受限重试成功；没有中断既有 dashboard 隧道。
+- 三个事故文件继续精确匹配冻结基线：champion SHA256 `6d350afe5aacf237b6ac8e1f9ef252641bbc3f94b545aef50ada5787dbd45153`、mtime `2026-07-22T04:06:57.677808Z`、trigger `portfolio_daily_loss_gate`；favorite SHA256 `7b862450ccbb7ef518059047fbdda3ed4a7e228865dc9ab90f16c9d549f66ef2`、mtime `2026-07-24T16:06:03.734362Z`、experiment `favorite-price-holdout-v1`、trigger `challenger_portfolio_daily_loss_gate`；calibrated SHA256 `58ddb83be88ce9ee5f30890e7ceeb052902d4ffdfbb143a32dedb4f8d6d75e40`、mtime `2026-08-01T02:30:41.384128Z`、experiment `calibrated-probability-holdout-v1`、trigger 同为永久日亏锁。没有解除、重置或回改任何账本。
+- `P95<100ms`：本轮依冻结规则没有重新采集，不能声称当前达标；最近完整可验证窗口仍为 `383.13–385.38ms`，因此已知证据不达标且不稳定。收益证据：**未达标**；observer 累计 P&L 再次恶化，最近完整 ROI/CI 也否定推广。
+- 假设与结果：是否出现需要介入的新运行异常。单次 API 已 ready 且 4/4 online，三服务同 PID/零重启，三份事故文件逐字节 hash 未变；没有明确、可复现、低风险的软件问题支持改动。本轮只追加研究记录，不改运行代码、配置、指标、freshness、风控、账本、route、live mode 或云资源，也不建议购买机器。没有新的可复用运行教训需要同步进 `FAST_MARKET_MEMORY.md`。
+- 下一轮唯一优先项：任何后续 `2026-08-04` JST 触发继续 fail-closed 跳过运行访问；进入下一个 JST 自然日后，最多执行一次同样的最小健康检查，只核对三服务 active、4/4 online 和三个事故锁 hash/mtime/trigger 持续 fail-closed。冻结期内不恢复 latency/steal/TTFB/sidecar 研究。
