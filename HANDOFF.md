@@ -55,6 +55,8 @@ cp deploy/pi.env.example deploy/pi.env
 | **实盘下单** | ⚠️ **代码写了，从没真跑过。`execute.py::_execute_live` 只做了语法和逻辑验证，没有真实成交过一单。** |
 | **有没有 edge** | ⚠️ **完全未知。零结算记录。所有轮次都是 SKIP。** |
 
+> 2026-08-15 追记:FAST_MARKET 那套(`polyvote-fast*` 三个 shadow 服务,与上表的 bot/观测台无关)已由blanchex拍板下线,三个服务在目标机上 stop+disable,数据文件全部保留。经过与验证结果见 `FAST_MARKET_RESEARCH_LOG.md` 末条。
+
 ### bot 正在运行 —— 怎么看 / 怎么停
 
 ```bash

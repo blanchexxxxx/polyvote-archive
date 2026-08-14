@@ -1569,3 +1569,35 @@ IPv6 `/book` 对照：
 - 未改任何代码/配置/账本/风控/交易开关，未开 PR（因为没有可修的低风险代码 bug；编造一个修复反而有害）。
 - 未触碰 VPS/远端，未恢复 latency/steal/TTFB/sidecar 研究（规则要求须用户重新授权）。
 - 未同步改写 `FAST_MARKET_MEMORY.md` / `AGENTS.md` 中的冻结规则原文——那是用户的既定指令，在blanchex对"下线/继续冻结"拍板前不应改写。
+
+## 2026-08-15 JST — blanchex拍板下线；三个 fast 服务已 stop+disable，数据全部保留
+
+### 决定与性质
+
+- blanchex看过上一条（2026-08-15 JST）复盘后明确拍板：**直接下线，停止服务**。本轮是执行这个已定决定，不是探索性任务。
+- 执行时间：`2026-08-14 16:16:32–16:17:31 UTC`（= `2026-08-15 01:16–01:17 JST`），通过 `deploy/pi.env` 指定的 SSH 通道逐服务操作。
+- 这三个服务都是 `Restart=always` + `WantedBy=default.target`，只 `stop` 会被自动拉回，所以每个都执行了 `systemctl --user stop` **加** `systemctl --user disable`。
+
+### 逐服务执行与验证（一次一个，每步 status 核对）
+
+1. `polyvote-fast.service`：stop 后 `inactive (dead)`，主进程 `status=0/SUCCESS` 干净退出（此前连续运行 `1w 6d 7h`）；disable 移除 `default.target.wants` 链接，`is-enabled` → `disabled`。
+2. `polyvote-fast-challenger.service`：stop 约 4 秒内 `status=0/SUCCESS` 干净退出（未触发历史上出现过的 stop 超时 SIGKILL；此前连续运行 `1w 6d 19h`）；disable 后 `is-enabled` → `disabled`。
+3. `polyvote-fast-dashboard.service`：stop 后 `inactive (dead)`（`signal=TERM`，对无状态 dashboard 属正常终止）；disable 后 `is-enabled` → `disabled`。
+
+### 最终状态汇总（远端逐项确认）
+
+```
+polyvote-fast.service                active=inactive enabled=disabled
+polyvote-fast-challenger.service     active=inactive enabled=disabled
+polyvote-fast-dashboard.service      active=inactive enabled=disabled
+```
+
+- 三个服务均 `inactive (dead)` + `disabled`：不会崩溃自拉，也不会开机/登录自启。unit 文件本身保留在 `~/.config/systemd/user/`，只移除了自启链接——将来若要重启有据可循。
+- **未触碰范围**：该主机 user units 里只有这三个 fast 服务（`polyvote-bot.service` / `polyvote-dashboard.service` 不在此主机的 user units 中，自然未动）；未改任何交易密钥/配置文件。
+- **数据全部保留，零删除**：observer 与 challenger 的全部 SQLite（`fast_observer_*.db`、`fast_challenger_*.db` 等）、`fast_decisions*.jsonl`、`fast-*.log` 均原样在 `~/polyvote/`，只是停止继续写入新数据。最后写入时间戳止于停机时刻。
+- 全程 shadow 模式（无私钥、无真实下单），停服务无资金风险。
+
+### 下一步
+
+- 仓库侧 `FAST_MARKET_MEMORY.md` / `AGENTS.md` 中的冻结规则原文现在可以在后续轮次按「已下线」改写（拍板前不改的前提已解除），本轮不顺手动它，保持运维动作与文档改写分离。
+- 远端 `$5/月` Lightsail 实例上还留着数据与 venv；是否归档数据、退租实例由blanchex另行决定，不在本轮范围。
