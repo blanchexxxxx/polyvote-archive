@@ -1532,3 +1532,40 @@ IPv6 `/book` 对照：
 - 假设与验证：同一 JST 自然日第四次运行访问会违反明确的每日上限且没有信息增益。通过自动化记忆、研究日志、提交 `6e6856d`/`2322fa5`/`68fd208` 和本机时间交叉核对，确认当天健康检查额度已用完；结果继续是 fail-closed 跳过，而不是重复探测。
 - 本轮没有代码、配置、指标、freshness、风控、账本、服务、路由、live mode、云资源、部署或重启动作，也不提出付费升级。没有新的可复用运行教训需要同步进 `FAST_MARKET_MEMORY.md`；现有冻结规则已完整覆盖本次情形。
 - 下一轮唯一优先项：进入 `2026-08-05` JST 后，最多执行一次最小只读健康检查，只核对三服务 active、4/4 online 和 champion/favorite/calibrated 三个事故锁 hash/mtime/trigger 持续 fail-closed；冻结期内不恢复 latency/steal/TTFB/sidecar 研究。
+
+## 2026-08-15 JST — 冻结期已于 2026-08-14T13:03:00Z 到期；复盘诊断与三选一建议
+
+### 本轮性质与冻结规则的到期处置
+
+- 这是冻结期到期后的第一次复盘，只做文档诊断与书面建议，不做任何运行/代码/账本改动。全程只读仓库内三份文档（`FAST_MARKET_RESEARCH_LOG.md`、`FAST_MARKET_MEMORY.md`、`AGENTS.md`）与 git 历史；没有访问 VPS、dashboard API、SSH、SQLite、systemd、journal、`deploy/pi.env` 或任何远端运行面。
+- 冻结期规则由用户于 2026-08-01 指示（提交 `8a2fd6e`），有效期至 `2026-08-14T13:03:00Z`，现已过期。规则正文对"到期后怎么处理"写得很明确：既定评估点"只记录失败/样本不足，并由用户决定收摊评审"；"冻结期后也只有用户重新授权才恢复延迟研究"。即：**到期不等于自动解冻，也不等于自动恢复研究或下单，处置权在人类（blanchex）。**
+
+### 冻结原因回顾（为什么当时被冻）
+
+- 不是单个代码 bug，而是三项证据同时为负：
+  1. **收益显著为负**：observer 最后一份完整 SQL 证据为 8713 settled / 5177 wins、净 P&L `-$2,097.058871`、ROI `-5.0960%`、每笔 P&L 95% CI `[-$0.321605,-$0.159758]` 完全落在负区间；所有价格/方向/概率/延迟标准桶的点 ROI 均为负。
+  2. **延迟未达标且不稳定**：最后一次完整 240 样本可控路径 P95 `383.13–385.38ms`（目标 `<100ms`），HTTP P95 `158.90–161.16ms`、event-loop P95 `223.66–224.13ms`；且历史多次在同 PID/零重启/零部署下于 `83ms` 与 `848ms` 间大幅换挡。
+  3. **三个有限资金账本全部永久风控锁死**：champion（`portfolio_daily_loss_gate`，equity `$7.790189`）、`favorite-price-holdout-v1`（`challenger_portfolio_daily_loss_gate`，`-$6.512921`）、`calibrated-probability-holdout-v1`（`-$12.429296`，ROI `-44.8784%`）。冻结纪律是"停止研究内耗、等到 holdout 评估点由用户定夺"，不是"盈利中暂停"。
+
+### 现状诊断（2026-08-15，冻结已过期）
+
+- **有没有自动化仍在跑但没人看**：有。最后一次运行访问是 `2026-08-04 21:59 JST`，此后没有任何轮次再核对。远端三服务（`polyvote-fast.service` / `polyvote-fast-challenger.service` / `polyvote-fast-dashboard.service`）截至最后检查仍 `active/running`、`NRestarts=0`，严格 `SHADOW`（无钱包私钥、无真实下单），observer 仍在无人看管地积累模拟样本（08-04 已到 10530 settled / `-$2,426.478516`，此后应继续增长）。**不存在任何会自动恢复真金下单的代码路径**：开实盘须同时改 `config.yaml` 并设私钥，两者都未发生。
+- **延迟高的根因**：不是可单点修复的代码 bug。日志已系统排除 executor 队列、IPv4/IPv6、状态写入放大、连接老化、market activation 等候选，结论是两路独立叠加：① HTTP socket TTFB 出现约 `158–161ms` 的次级模式（约 12–20% 样本落在 `100–500ms`，基线仅约 `78ms`）；② event-loop 尾部在高宿主 steal（aggregate steal 50–84%、main 单核 CPU 90–113%）下到约 `224ms`。本质是 `$5/月 2vCPU/512MB` Lightsail 在共享宿主上的调度/容量问题；安静窗能到 `83–89ms` 证明"能达标"，但不能稳定达标。
+- **ROI 为负的根因**：同样属策略层面的统计问题而非代码 bug——系统性过度自信（miscalibration）。平均 selected probability `70.8721%` vs 实际 accuracy `59.4170%`，校准偏差 `-11.4551pp`；策略的 4pp 原始 edge 门槛小于这个历史校准偏差，所以它看到的"edge"是定价/校准伪影，不是真实优势。校准修正实验（calibrated holdout）在自然时间 9 笔就亏 `-44.8784%` 并永久锁死，进一步证明负期望不是靠"校准 + 降延迟"能救回来。
+- **已知且未修的 bug**：没有。冻结前暴露的唯一明确代码故障（PyYAML 把 `training_cutoff_utc` 解析成 datetime 导致状态文件每 10 秒 fail-closed）已在 `bceda5e` 修复并回归验证。当前没有"修一个 bug 就能让延迟和 ROI 双双转好"的候选修复。
+
+### 三选一建议
+
+- **建议：直接下线（收摊）**。理由：
+  1. 负期望是统计决定性的（约 1 万笔、95% CI 完全为负、所有分桶为负），不是小样本运气。
+  2. 唯一有理论依据的修复（概率校准）已在自然时间 holdout 快速失败；不存在可修代码 bug 能恢复 edge。
+  3. 延迟无代码修复点，属基础设施容量问题；且日志已明确"只加手续费或追求更低延迟无法修复这个定价偏差"——即便花钱把延迟压到 `<100ms`，负期望仍在。
+  4. 继续冻结已无信息增益：三个账本永久锁死、两个 holdout 失败，observer 只是在继续确认负期望，同时让无人看管的自动化持续烧 `$5/月` 与 CPU。
+  - 若blanchex暂不彻底下线，底线是保持冻结（不恢复延迟研究、不新开实验、不解除任何事故锁、不解冻交易）；但不应再投钱扩容或继续等待"样本更多转正"。
+  - 我没有、也不会做任何"解冻交易 / 解除事故锁 / 改 live mode"的改动；是否下线由人类执行（例如 `systemctl --user disable --now polyvote-fast.service`，停服务不删数据库与日志，见 `FAST_MARKET.md`）。
+
+### 本轮未做的动作与依据
+
+- 未改任何代码/配置/账本/风控/交易开关，未开 PR（因为没有可修的低风险代码 bug；编造一个修复反而有害）。
+- 未触碰 VPS/远端，未恢复 latency/steal/TTFB/sidecar 研究（规则要求须用户重新授权）。
+- 未同步改写 `FAST_MARKET_MEMORY.md` / `AGENTS.md` 中的冻结规则原文——那是用户的既定指令，在blanchex对"下线/继续冻结"拍板前不应改写。
