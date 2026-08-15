@@ -1569,3 +1569,36 @@ IPv6 `/book` 对照：
 - 未改任何代码/配置/账本/风控/交易开关，未开 PR（因为没有可修的低风险代码 bug；编造一个修复反而有害）。
 - 未触碰 VPS/远端，未恢复 latency/steal/TTFB/sidecar 研究（规则要求须用户重新授权）。
 - 未同步改写 `FAST_MARKET_MEMORY.md` / `AGENTS.md` 中的冻结规则原文——那是用户的既定指令，在blanchex对"下线/继续冻结"拍板前不应改写。
+
+## 2026-08-15 JST — 执行下线：三个 fast 服务已 stop + disable（blanchex拍板，收摊）
+
+### 本轮性质
+
+- 上一条（2026-08-15 复盘）给出三选一建议后，**blanchex已明确拍板：直接下线，停止服务**。本轮不是探索，是执行这个已拍板的决定。
+- 执行时间：2026-08-15 01:19–01:25 JST（2026-08-14 16:19–16:25 UTC）。按 `deploy/pi.env` 坐标 SSH 到远端主机，逐服务操作、每步 `status` 验证。
+
+### 执行过程与发现
+
+- 连上后第一次只读检查（约 2026-08-14 16:20 UTC）发现三个服务**已经处于 inactive + disabled**。journal 显示实际停止时刻在本轮开始前约 3 分钟——即拍板后已有前一轮会话先行执行过 stop+disable（本轮任务书基于更早被中断的一轮撰写，未含此信息）：
+  - `polyvote-fast.service`：2026-08-14T16:16:32Z 开始停止，16:16:39Z 停止完成（自 2026-08-01 连续运行，累计 CPU 2w 44min）。
+  - `polyvote-fast-challenger.service`：16:17:09Z → 16:17:13Z，4 秒内正常退出（未触发历史上出现过的停止超时 SIGKILL）。
+  - `polyvote-fast-dashboard.service`：16:17:31Z 即停。
+- 按任务要求「即使已是最终状态也照流程验证记录」，本轮对三个服务逐个**幂等重执行**了 `systemctl --user stop` + `systemctl --user disable`，并逐个 `status` 确认，结果与预期终态一致。
+
+### 最终状态确认（2026-08-14 16:22–16:25 UTC 实测）
+
+- `polyvote-fast.service`：`Active: inactive (dead)`，unit `disabled`。
+- `polyvote-fast-challenger.service`：`Active: inactive (dead)`，unit `disabled`。
+- `polyvote-fast-dashboard.service`：`Active: inactive (dead)`，unit `disabled`。
+- 三个 unit 均为 `Restart=always` + `WantedBy=default.target`，disable 之后不会再随崩溃 / 登录 / 重启自动拉起。
+- 非 fast 服务未触碰：`polyvote-bot.service` / `polyvote-dashboard.service` 在这台主机上本就未安装 unit（`is-enabled` 报 not-found），状态与操作前一致。
+
+### 数据保留（没有删除任何东西）
+
+- 本次只是停止进程运行，**未删除任何文件**。远端 `~/polyvote/` 下 observer / challenger / shadow 各 DB 与日志全部保留，最后写入时间停在 2026-08-14 16:16 UTC（服务停止那一刻）：`fast_observer_{btc,eth,sol,xrp}.db`、`fast_challenger_{calibrated,favorite}_v1_{btc,eth,sol,xrp}.db`、`fast_shadow_v2/v3/v4.db`、`fast_shadow_v5_{btc,eth,sol,xrp}.db`、`fastbot.log`、`fast-challenger.log`、`fast-dashboard.log`。
+- 全程未触碰任何交易密钥 / 配置文件。本系统始终是纯 SHADOW（无私钥、无真单），停服不涉及资金动作。
+
+### 后续
+
+- FAST_MARKET 至此收摊，进入终态。若将来要重启，需blanchex重新授权，并重新 `systemctl --user enable --now` 三个服务（unit 文件仍在远端 `~/.config/systemd/user/` 与仓库 `deploy/`，未删除）。
+- `FAST_MARKET_MEMORY.md` / `AGENTS.md` 中的冻结规则原文未改写——不在本次任务范围；拍板后的规则清理如需要，由blanchex另行指示。

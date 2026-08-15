@@ -54,6 +54,7 @@ cp deploy/pi.env.example deploy/pi.env
 | Token 命中率仪表 | ✅ 观测台面板 + `tests/test_cache_meter.py` 13 用例全过 |
 | **实盘下单** | ⚠️ **代码写了，从没真跑过。`execute.py::_execute_live` 只做了语法和逻辑验证，没有真实成交过一单。** |
 | **有没有 edge** | ⚠️ **完全未知。零结算记录。所有轮次都是 SKIP。** |
+| FAST_MARKET 子系统 | ⛔ 已下线（2026-08-15 blanchex拍板收摊）。`polyvote-fast*` 三个服务已 stop+disable，数据保留在目标机。经过与终态见 `FAST_MARKET_RESEARCH_LOG.md` 末条。 |
 
 ### bot 正在运行 —— 怎么看 / 怎么停
 
