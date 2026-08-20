@@ -32,6 +32,7 @@ FILES=(
   fast_portfolio.yaml
   fast_challenger.yaml
   fast_calibration_challenger.yaml
+  fast_arb.yaml
   requirements-fast.txt
   requirements.txt
   README.md
@@ -39,6 +40,7 @@ FILES=(
   fastbot.py
   fastmulti.py
   fastchallenger.py
+  fastarb.py
   fastdash_server.py
   dashboard.py
   dashboard.html

@@ -149,10 +149,16 @@ def apply_clob_market_info(market: FastMarket, raw: dict[str, Any]) -> FastMarke
         min_order_size = float(raw.get("mos") or market.min_order_size)
     except (TypeError, ValueError):
         min_order_size = market.min_order_size
+    fee_details = raw.get("fd")
+    try:
+        fee_rate = float(fee_details["r"])
+    except (KeyError, TypeError, ValueError):
+        fee_rate = market.fee_rate
     return replace(
         market,
         tick_size=tick_size,
         min_order_size=min_order_size,
+        fee_rate=fee_rate,
         taker_delay_enabled=bool(raw.get("itode", market.taker_delay_enabled)),
     )
 

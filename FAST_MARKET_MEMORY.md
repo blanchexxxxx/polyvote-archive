@@ -1,10 +1,16 @@
 # Fast Market 工作记忆
 
-最后更新：2026-08-01 18:22 JST
+最后更新：2026-08-20 17:00 JST
 
 这份文件是当前快市场系统的唯一快速交接入口。旧 `HANDOFF.md` 主要描述已退休的慢市场，而且存在编码损坏；继续工作时先读本文件。
 
 ## 当前结论
+
+- 2026-08-20 到期复核确认冻结期已于 `2026-08-14T13:03:00Z` 结束；旧 VPS 的 main/challenger/dashboard 三服务随后于 16:16–16:17 UTC 被正常停止并设为 disabled，主机保持在线但采集已停止。三个旧事故锁继续永久有效，不得恢复。
+- 停机时 observer 最终只读合计为 21,910 observations / 17,927 settled / 10,373 wins，净 P&L `-$3,966.937398`、费用 `$2,296.819131`、滑点 `$159.905637`、ROI `-4.7295%`；旧方向策略正式收摊，不构成迁移对象。
+- 已新增 keyless、严格 shadow 的 complete-set 套利 observer：动态读取每市场 fee curve，按双腿等量深度逐档计算 BUY_SET/SELL_SET，并扣执行与固定成本缓冲；没有钱包、签名、订单或 live path。双腿 CLOB batch/FOK 并非原子执行，任何机会只能称为 snapshot opportunity。
+- 2026-08-20 本地连续 13 个全市场快照中，成交量前 200 个活动市场有 85 个通过完整动态元数据核对；0 个满足净收益门槛，最好 fee-adjusted margin 仍为 `-$0.00308985/set`。该策略可继续采样，但当前没有可交易证据。
+- 停机空载的 Dublin Lightsail 对同一双书 `POST /books` 80/80 成功，warm total P50/P95/max `22.051/33.626/57.700ms`；当前节点若只跑低负载套利 observer 尚可，但此前满栈高 steal/freshness 失败证明不应再承载旧三服务。预算内迁移首选先按小时试用 Hetzner Nuremberg CX33（4 shared vCPU/8GB，2026-06 新价 `$9.99/月`、不含 IPv4/税），以新机实测而不是规格决定切换；本轮未购买、部署或重启。
 
 - 系统正在 AWS Lightsail VPS 上持续运行，关闭 Codex 或浏览器不会停止 VPS 服务。
 - 当前完全是 **shadow / 模拟盘**，没有钱包私钥，没有真实下单。

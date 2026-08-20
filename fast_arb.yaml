@@ -1,0 +1,28 @@
+# Pure complete-set arbitrage observer.  There is intentionally no live mode,
+# wallet, signing code, or order endpoint in this process.
+schema: fast-pure-arb-shadow-v1
+mode: shadow
+
+endpoints:
+  gamma: https://gamma-api.polymarket.com
+  clob: https://clob.polymarket.com
+
+scan:
+  max_markets: 200
+  market_refresh_seconds: 300
+  interval_seconds: 2
+  book_batch_size: 100
+  metadata_concurrency: 20
+  max_book_age_ms: 2500
+  max_pair_skew_ms: 750
+
+economics:
+  max_capital_usd: 30
+  min_net_profit_usd: 0.05
+  min_net_return: 0.0025
+  execution_buffer_per_set: 0.002
+  fixed_cost_buffer_usd: 0.05
+
+storage:
+  state: fast_arb_state.json
+  observations: fast_arb_observations.jsonl

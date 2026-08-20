@@ -16,6 +16,8 @@ fast_reviews.json
 fast_reviews_v*.json
 fast_portfolio_incident.json
 fast_replay_report.json
+fast_arb_state.json
+fast_arb_observations.jsonl
 
 # 日志
 *.log

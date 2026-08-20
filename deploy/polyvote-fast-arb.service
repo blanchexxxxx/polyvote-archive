@@ -1,0 +1,18 @@
+[Unit]
+Description=polyvote keyless complete-set arbitrage shadow observer
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/polyvote
+ExecStart=%h/polyvote/.venv/bin/python -u fastarb.py --config %h/polyvote/fast_arb.yaml
+Restart=always
+RestartSec=3
+StandardOutput=append:%h/polyvote/fast-arb.log
+StandardError=append:%h/polyvote/fast-arb.log
+MemoryMax=256M
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

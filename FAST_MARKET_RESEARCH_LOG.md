@@ -1532,3 +1532,12 @@ IPv6 `/book` 对照：
 - 假设与验证：同一 JST 自然日第四次运行访问会违反明确的每日上限且没有信息增益。通过自动化记忆、研究日志、提交 `6e6856d`/`2322fa5`/`68fd208` 和本机时间交叉核对，确认当天健康检查额度已用完；结果继续是 fail-closed 跳过，而不是重复探测。
 - 本轮没有代码、配置、指标、freshness、风控、账本、服务、路由、live mode、云资源、部署或重启动作，也不提出付费升级。没有新的可复用运行教训需要同步进 `FAST_MARKET_MEMORY.md`；现有冻结规则已完整覆盖本次情形。
 - 下一轮唯一优先项：进入 `2026-08-05` JST 后，最多执行一次最小只读健康检查，只核对三服务 active、4/4 online 和 champion/favorite/calibrated 三个事故锁 hash/mtime/trigger 持续 fail-closed；冻结期内不恢复 latency/steal/TTFB/sidecar 研究。
+
+## 2026-08-20 17:00 JST — 到期收摊与 complete-set 套利 shadow 迁移准备
+
+- 冻结期已结束。旧 VPS 三服务在 2026-08-14 16:16–16:17 UTC 正常停止且 unit 为 disabled；主机 uptime 连续、systemd Result=success，不是崩溃。三个旧事故文件 hash 未变，favorite/calibrated 仍分别永久 HALTED 于 6/6、9/9。
+- 停机账本只读汇总：observer 21,910 observations、17,927 settled、10,373 wins、accuracy 57.8624%，P&L -$3,966.937398、fees $2,296.819131、slippage $159.905637、cost $83,876.103298、ROI -4.7295%。方向策略不再迁移。
+- 对开源实现做源码审计：`pladee42/polymarket-bot` 使用旧 `py-clob-client`、错误的固定双倍 fee 计算且将并发 FOK 误作原子执行；`cryptuon/polybot` 为 MIT，但同样使用固定 fee_bps、忽略深度并把 confidence 标为 1。只采用后者 MIT 的 unity-constraint detector 概念，不复制其 live executor。
+- 新增 `polyvote/fastarb.py`、`fastarb.py`、`fast_arb.yaml`、测试、systemd unit 和操作说明。实现从 CLOB `fd.r` 动态取费率，双腿等量逐档走深度，扣 execution/fixed buffers，并明确 batch snapshot 不是原子执行。代码没有私钥、签名、order endpoint 或 live mode。
+- 本地 13 个连续全市场扫描快照均发现 85 个可完整核对市场、0 个净机会；最佳 margin 持续为 -$0.00308985/set。50 项 Fast tests、前端 validator、静态编译和 diff check 全通过。
+- 旧 Dublin 节点空载 `POST /books` 80/80：P50/P95/max 22.051/33.626/57.700ms。Globalping 交叉测量中，Hetzner Nuremberg HTTP first-byte 30–37ms、AWS Dublin 26–45ms、AWS Ashburn 94–97ms；Nuremberg 与 Dublin 同档，Ashburn 虽 TCP 近但源站 first-byte 明显更慢。预算内建议先按小时开 Nuremberg CX33 做 24h burn-in，再决定迁移；没有现场购买、部署或服务变更。

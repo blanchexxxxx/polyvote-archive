@@ -53,13 +53,14 @@ class FastMarketTests(unittest.TestCase):
         }
         market = apply_clob_market_info(
             parse_fast_market(raw, 900),
-            {"itode": True, "mts": "0.001", "mos": "7"},
+            {"itode": True, "mts": "0.001", "mos": "7", "fd": {"r": "0.04"}},
         )
         self.assertTrue(market.taker_delay_enabled)
         self.assertEqual(market.taker_delay_ms, 0)
         self.assertFalse(market.taker_delay_verified)
         self.assertEqual(market.tick_size, 0.001)
         self.assertEqual(market.min_order_size, 7)
+        self.assertEqual(market.fee_rate, 0.04)
 
         market = apply_market_processing_info(market, {"seconds_delay": 0})
         self.assertEqual(market.taker_delay_ms, 0)
