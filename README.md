@@ -118,3 +118,7 @@ Most of the docs are in Chinese. They are working notes written during developme
 ## Disclaimer
 
 This is a personal research project and not investment advice. Polymarket's terms of service restrict US persons from trading via the API or agents. Check the rules where you live before using any of this.
+
+## License
+
+[MIT](LICENSE). Use it however you like.

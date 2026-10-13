@@ -118,3 +118,7 @@ python3 -m venv .venv
 ## 免责声明
 
 这是个人研究项目，不构成任何投资建议。Polymarket 的服务条款限制美国用户通过 API 或 agent 交易，使用前请先确认你所在地区的规定。
+
+## 许可证
+
+[MIT](LICENSE)，随便用。
