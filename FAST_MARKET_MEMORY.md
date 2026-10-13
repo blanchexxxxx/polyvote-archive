@@ -1,12 +1,20 @@
 # Fast Market 工作记忆
 
-最后更新：2026-08-01 18:22 JST
+最后更新：2026-10-13 JST（项目中止）
 
 这份文件是当前快市场系统的唯一快速交接入口。旧 `HANDOFF.md` 主要描述已退休的慢市场，而且存在编码损坏；继续工作时先读本文件。
 
-## 当前结论
+## 项目状态：已中止（2026-10-13）
 
-- 系统正在 AWS Lightsail VPS 上持续运行，关闭 Codex 或浏览器不会停止 VPS 服务。
+- 2026-08-15：按复盘结论停止并 disable 了三个快市场服务（`polyvote-fast` / `polyvote-fast-challenger` / `polyvote-fast-dashboard`），详见 `FAST_MARKET_RESEARCH_LOG.md`。
+- 2026-10-13：Lightsail VPS 实例已由用户停止。复核时 SSH 22 端口连接超时，本机 dashboard 隧道未运行，`127.0.0.1:8920` 不可达。
+- 项目暂时中止，仓库准备公开。下文“当前结论”及之后的内容是 2026-08-01 的运行快照，**不代表现状**，仅作历史记录。
+- 全程为 shadow / 模拟盘，无钱包私钥、无真实下单，停机不留真实仓位或资金风险。
+- 若要恢复：重新启动实例后公网 IP 可能已变（未绑静态 IP 时），需同步更新 `deploy/keep-dashboard-tunnel.ps1` 的 `$RemoteHost` 与本文件的访问信息，然后逐个 `systemctl --user enable --now` 服务并核对状态。
+
+## 当前结论（2026-08-01 快照）
+
+- （2026-08-01 时）系统在 AWS Lightsail VPS 上持续运行。现已停机，见上方项目状态。
 - 当前完全是 **shadow / 模拟盘**，没有钱包私钥，没有真实下单。
 - 慢市场已退休，不再开发或展示。
 - 原严格资金冠军账本从 `$30.00` 亏至 `$7.790189`，已被 `portfolio_incident_latched` 永久风控锁定，不再产生订单。
@@ -45,7 +53,7 @@
 - 2026-07-27 的主探针/四连接 IPv6 sidecar/VPS 调度同窗各含 240 样本：sidecar 960/960 成功、0 重连，TTFB P50/P95 为约 `78/82ms`；主探针 HTTP P50 同为约 `78ms`，但约 `158ms` 次级模式在主侧进入 P95、在 sidecar 只到 P99。主侧差值中位数在 steal 低/高四分位均约 `79–81ms`，没有随 aggregate steal 同涨同落；基础路径相同，差别在次级模式出现频率，当前证据不支持改 executor、强制 IPv4 或付费扩容。
 - 2026-07-28 本地工作区存在归属不明的 `fastbot.py` / `tests/test_fastbot.py` 未提交改动，内容是上一轮计划的主探针提交/完成单调时间与 240 样本 TTFB 分桶诊断。项目 `.venv` 已确认包含 `aiohttp` / `PyYAML`，当前精确工作区的 41 个 Fast tests、前端 validator、13 模块静态编译和 diff check 全部通过；测试阻塞已消除。2026-08-01 复核判定该改动为此前轮次按计划自产的诊断代码，已随 `95ad1f7` 提交并于同日部署，归属阻塞解除。
 
-## 运行位置与访问
+## 运行位置与访问（已停机，仅供恢复参考）
 
 - VPS：`<vps-ip>`
 - 远端目录：`/home/ubuntu/polyvote`

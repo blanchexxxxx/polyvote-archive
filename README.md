@@ -1,5 +1,7 @@
 # polyvote
 
+> **状态：已中止（2026-10-13）。** 所有服务已停止，部署机器已关闭。本仓库作为研究记录公开，全程为模拟盘（shadow），从未真实下单。最后的状态与结论见 [`FAST_MARKET_MEMORY.md`](FAST_MARKET_MEMORY.md)。
+
 多模型投票的 Polymarket 交易 agent。**不走 LLM API**，走 `claude` / `codex` CLI 的
 一次性子进程，吃订阅配额。
 
